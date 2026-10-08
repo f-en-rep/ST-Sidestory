@@ -1,0 +1,56 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {parseHTML,DOMParser} from '../test-runtime/linkedom.mjs';
+import {createSTHost} from '../src/st-host.js';
+test('full UI with ST adapter: initialize, select references, generate, archive, settings and cleanup', async()=>{
+ const {window,document}=parseHTML('<html><body><div id="extensionsMenu"></div></body></html>');
+ window.innerWidth=1200;window.innerHeight=800;window.matchMedia=()=>({matches:false});
+ const cache=new Map(),storage={getItem:k=>cache.get(k)||null,setItem:(k,v)=>cache.set(k,v),removeItem:k=>cache.delete(k)};
+ Object.assign(globalThis,{window,document,DOMParser,sessionStorage:storage,localStorage:storage});
+ const records=new Map();
+ const db={close(){},transaction(){let count=0;const tx={};function req(fn){count++;const r={};setTimeout(()=>{r.result=fn();r.onsuccess?.();count--;setTimeout(()=>{if(!count)tx.oncomplete?.();},0);},0);return r;}tx.objectStore=()=>({getAll:()=>req(()=>[...records.values()]),put:v=>req(()=>records.set(v.id,structuredClone(v))),delete:id=>req(()=>records.delete(id))});return tx;}};
+ globalThis.indexedDB={open(){const r={};setTimeout(()=>{r.result=db;r.onsuccess?.();},0);return r;}};
+ const calls=[],events=new Map();let saved=false,tokenCalls=0,finishGeneration;
+ const c={chatId:'current',characterId:0,groupId:null,characters:[{avatar:'a.png',name:'A',data:{name:'동명',description:'CARD_SENTINEL',extensions:{world:'Book'}}},{avatar:'b.png',name:'동명',data:{name:'동명',description:'OTHER_CARD_SENTINEL'}}],chat:[{name:'A',mes:'DIALOGUE_SENTINEL',is_user:false}],chatMetadata:{},powerUserSettings:{personas:{'u.png':'U'},persona_descriptions:{'u.png':{description:'PERSONA_SENTINEL'}}},name1:'U',mainApi:'openai',extensionSettings:{st_sidestory:{mode:'story'}},saveSettingsDebounced(){saved=true;},generateQuietPrompt:async p=>{const rows={globalLore:[{content:'AUTOMATIC'}],characterLore:[],chatLore:[],personaLore:[]};events.get('lore')?.(rows);assert.equal(rows.globalLore.length,0);calls.push(p);return new Promise(resolve=>finishGeneration=resolve);},generateRaw:async()=>{throw new Error('Generation must use the ST context path');},eventTypes:{CHAT_CHANGED:'chat',WORLDINFO_ENTRIES_LOADED:'lore'},getTokenCountAsync:async text=>{tokenCalls++;return Math.ceil(text.length/3);},getTokenizerModel:()=> 'test-model',eventSource:{on(k,f){events.set(k,f);},removeListener(k){events.delete(k);}}};
+ globalThis.SillyTavern={getContext:()=>c};
+ const world={world_names:['Book'],selected_world_info:[],loadWorldInfo:async()=>({entries:{0:{uid:0,comment:'Place',content:'WORLD_SENTINEL',disable:false},1:{uid:1,comment:'Excluded',content:'EXCLUDED_WORLD',disable:false}}})};
+ const h=createSTHost({context:()=>c,world});
+ const code=fs.readFileSync(new URL('../index.js',import.meta.url),'utf8').split('await (async function(stHost){\n')[1].split('\n})(hostAdapter);')[0];
+ await new Function('stHost','return (async()=>{'+code+'})()')(h);
+ const root=document.querySelector('#st-sidestory-root').shadowRoot,$=s=>root.querySelector(s);
+ const click=selector=>{assert($(selector),'missing '+selector);$(selector).dispatchEvent(new window.Event('click',{bubbles:true}));};
+ const wait=async fn=>{for(let i=0;i<150;i++){if(fn())return;await new Promise(r=>setTimeout(r,10));}throw new Error('timeout: '+($('#notice')?.textContent||''));};
+ document.querySelector('#side-story-wand').dispatchEvent(new window.Event('click',{bubbles:true}));await wait(()=>$('#generate')&&!$('#generate').disabled);assert.equal($('#launcher'),null);click('#open-references');assert.equal($('#chat'),null);assert.equal($('[data-pick=characterIds]'),null);assert($('.reference-dialog').textContent.includes('a.png'));click('#close-references-done');
+ click('#open-references');click('[data-reference-tab=lore]');click('[data-lore-mode=selected]');await wait(()=>$('[data-lore-entry]'));
+ click('[data-lore-bulk=none]');assert.equal($('[data-lore-entry]').hasAttribute('checked'),false);
+ const pick=$('[data-lore-entry][value="0"]');pick.checked=true;pick.dispatchEvent(new window.Event('change',{bubbles:true}));click('#close-references-done');
+ $('#request').value='카페 외전';$('#request').dispatchEvent(new window.Event('input',{bubbles:true}));click('#generate');await wait(()=>finishGeneration);click('[data-page=archive]');finishGeneration('두 사람은 카페에서 만났다.');await wait(()=>records.size===1&&!$('#generate').disabled);
+ assert(calls[0].quietPrompt.includes('카페 외전'));assert(calls[0].quietPrompt.includes('WORLD_SENTINEL'));assert(!calls[0].quietPrompt.includes('EXCLUDED_WORLD'));assert(!events.has('lore'));assert(!calls[0].quietPrompt.includes('CARD_SENTINEL'));assert(!calls[0].quietPrompt.includes('OTHER_CARD_SENTINEL'));assert(tokenCalls>0);assert.equal([...records.values()][0].tokenizer.source,'sillytavern');assert.equal(c.chat.length,1);assert.equal([...records.values()][0].status,'complete');
+ let finishTranslation;c.generateRaw=async p=>new Promise(resolve=>finishTranslation=()=>resolve(JSON.stringify({items:JSON.parse(p.prompt[1].content).items.map(x=>({...x,text:'Translated passage'}))})));
+ click('#translate');await wait(()=>finishTranslation);click('[data-page=archive]');finishTranslation();await wait(()=>[...records.values()][0]?.translationView&&$('#translate'));assert($('#translate').classList.contains('active'));assert.equal([...records.values()][0].translationView.content,'Translated passage');
+ click('[data-page=archive]');assert($('.app').textContent.includes('카페 외전'));
+ click('[data-page=settings]');assert($('.app').textContent.includes('현재 실리태번 연결'));
+ assert(document.querySelector('#side-story-wand'));
+ c.characterId=1;c.chat=[{name:'동명',mes:'SECOND_CHAT',is_user:false}];events.get('chat')();document.querySelector('#side-story-wand').dispatchEvent(new window.Event('click',{bubbles:true}));await wait(()=>$('#generate')&&!$('#generate').disabled);assert($('.st-current-cards').textContent.includes('b.png'));assert.equal($('#request').value,'');click('[data-page=archive]');assert($('.app').textContent.includes('카페 외전'));click('[data-archive-scope=current]');assert(!$('.app').textContent.includes('카페 외전'));assert.equal(records.size,1);
+ // A slow tokenizer must save an edit to its original chat without reopening it in the new chat.
+ c.characterId=0;events.get('chat')();document.querySelector('#side-story-wand').dispatchEvent(new window.Event('click',{bubbles:true}));await wait(()=>$('#generate')&&!$('#generate').disabled);click('[data-page=archive]');click('[data-open]');click('#edit');
+ $('#edit-source').value='EDITED_ORIGINAL_CHAT';let finishCount;c.getTokenCountAsync=()=>new Promise(resolve=>finishCount=resolve);click('#save-edit');await wait(()=>finishCount);
+ c.characterId=1;events.get('chat')();finishCount(7);await wait(()=>records.size===2);
+ const edited=[...records.values()].find(r=>r.content==='EDITED_ORIGINAL_CHAT');assert(edited);assert.equal(edited.chatId,[...records.values()][0].chatId);
+ document.querySelector('#side-story-wand').dispatchEvent(new window.Event('click',{bubbles:true}));await wait(()=>$('#generate')&&!$('#generate').disabled);assert(!$('.app').textContent.includes('EDITED_ORIGINAL_CHAT'));click('[data-page=archive]');assert.equal($('[data-open]'),null);
+ // Branch twice from the same story and verify persistence, grouping, navigation and filtering.
+ c.getTokenCountAsync=async text=>Math.ceil(text.length/3);c.characterId=0;events.get('chat')();
+ document.querySelector('#side-story-wand').dispatchEvent(new window.Event('click',{bubbles:true}));await wait(()=>$('#generate')&&!$('#generate').disabled);
+ click('[data-page=archive]');click('[data-archive-scope=all]');const original=[...records.values()].find(r=>!r.parentId);
+ click('[data-open="'+original.id+'"]');$('#followup').value='스토리 다음';finishGeneration=null;click('#continue');await wait(()=>finishGeneration);finishGeneration('NEXT_STORY');await wait(()=>records.size===3&&!$('#generate').disabled);
+ const story=[...records.values()].find(r=>r.content==='NEXT_STORY');assert(story.seriesId);assert.equal(records.get(original.id).seriesId,story.seriesId);assert($('.series-navigation'));
+ click('.series-navigation [data-open="'+original.id+'"]');$('#followup').value='HTML 다음';click('[data-continuation-mode=visual]');assert.equal($('#followup').value,'HTML 다음');finishGeneration=null;click('#continue');await wait(()=>finishGeneration);assert(calls.at(-1).quietPrompt.includes('requested target mode'));finishGeneration('<!doctype html><html><head><title>HTML branch</title></head><body>HTML_NEXT</body></html>');await wait(()=>records.size===4&&!$('#generate').disabled);
+ const html=[...records.values()].find(r=>r.mode==='visual');assert.equal(html.seriesId,story.seriesId);assert.equal(html.parentId,original.id);assert.equal(story.parentId,original.id);
+ click('[data-page=archive]');assert.equal(root.querySelectorAll('.series-card').length,1);assert.equal(root.querySelectorAll('.shelf-card').length,2);assert.equal(root.querySelectorAll('[data-archive-scope]').length,2);
+ const favoriteButton=$('.series-card [data-fav="'+html.id+'"]');favoriteButton.dispatchEvent(new window.Event('click',{bubbles:true}));await wait(()=>records.get(html.id).favorite);
+ $('#fav-only').checked=true;$('#fav-only').dispatchEvent(new window.Event('change',{bubbles:true}));assert.equal(root.querySelectorAll('.series-card').length,1);assert.equal(root.querySelectorAll('.series-card [data-open]').length,1);
+ $('#fav-only').checked=false;$('#fav-only').dispatchEvent(new window.Event('change',{bubbles:true}));click('#archive-delete-mode');assert.equal(root.querySelectorAll('[data-archive-select]').length,4);click('#archive-delete-mode');
+ h.cleanup();await new Promise(r=>setTimeout(r,5));assert(saved);assert.equal(document.querySelector('#st-sidestory-root'),null);assert.equal(document.querySelector('#side-story-wand'),null);
+});
+

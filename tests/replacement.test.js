@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const context=vm.createContext({});vm.runInContext(fs.readFileSync(new URL('../src/replacement.js',import.meta.url),'utf8')+';globalThis.R=SideReplace;',context);const R=context.R;
+const rule=(find,replace,regex=false,flags='g')=>({name:'test',find,replace,regex,flags,enabled:true});
+test('literal names preserve $ replacement text and regex characters',()=>{const r=R.compute(['A.* and A.*'],[rule('A.*','$1🌙')]);assert.equal(r.items[0].text,'$1🌙 and $1🌙');assert.equal(r.items[0].map.at(-1),11);});
+test('regex capture groups, order, flags and original selection offsets',()=>{const r=R.compute(['Slade 123'],[rule('(Slade) (\\d+)','$2 $1',true),rule('Slade','🌙')]);assert.equal(r.items[0].text,'123 🌙');const n=R.compute(['Hello Slade!'],[rule('Slade','🌙')]).items[0];assert.equal(n.raw.slice(n.map[6],n.map[8]),'Slade');assert.equal(n.map.length,n.text.length+1);assert.equal(R.compute(['A a'],[rule('a','b',true,'gi')]).items[0].text,'b b');});
+test('invalid rules are reported and original text remains recoverable',()=>{const r=R.compute(['원문'],[rule('[','x',true)]);assert.equal(r.errors.length,1);assert.equal(r.items[0].raw,'원문');assert.equal(r.items[0].text,'원문');});
+test('zero-width and named groups do not break map boundaries',()=>{const r=R.compute(['ab'],[rule('(?<letter>a)','$<letter>!',true)]).items[0];assert.equal(r.text,'a!b');assert.equal(r.map.at(-1),2);assert.equal(R.compute(['ab'],[rule('(?=b)','-',true)]).items[0].text,'a-b');});
