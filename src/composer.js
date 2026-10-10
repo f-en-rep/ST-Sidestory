@@ -9,14 +9,14 @@ function switchWorkMode(mode){
  s.requestDrafts[s.mode]=s.request;
  if(current?.chatId===chatId)workResults.set(current.mode,current);
  s.mode=mode;s.request=s.requestDrafts[mode]||'';
- if(isInner(mode))lastInnerMode=mode;else lastOuterMode=mode;
+ if(isInner(mode))lastInnerMode=mode;else if(mode!=='facet')lastOuterMode=mode;
  const cached=workResults.get(mode);current=cached?records.find(r=>r.id===cached.id&&r.chatId===chatId)||null:null;
  page='create';viewEpoch++;expanded=false;mobilePane='compose';raw=false;editing=false;translationDraft=null;translationShown=false;referencesOpen=false;
  persist();render();
 }
 function switchWorkSection(inner){
- if(isInner())lastInnerMode=s.mode;else lastOuterMode=s.mode;
- if(inner===isInner()){page='create';viewEpoch++;render();return;}
+ if(isInner())lastInnerMode=s.mode;else if(s.mode!=='facet')lastOuterMode=s.mode;
+ if(s.mode!=='facet'&&inner===isInner()){page='create';viewEpoch++;render();return;}
  switchWorkMode(inner?lastInnerMode:lastOuterMode);
 }
 function innerOptions(){
