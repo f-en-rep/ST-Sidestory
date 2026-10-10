@@ -29,6 +29,13 @@ test('full UI with ST adapter: initialize, select references, generate, archive,
  assert(calls[0].quietPrompt.includes('카페 외전'));assert(calls[0].quietPrompt.includes('WORLD_SENTINEL'));assert(!calls[0].quietPrompt.includes('EXCLUDED_WORLD'));assert(!events.has('lore'));assert(!calls[0].quietPrompt.includes('CARD_SENTINEL'));assert(!calls[0].quietPrompt.includes('OTHER_CARD_SENTINEL'));assert(tokenCalls>0);assert.equal([...records.values()][0].tokenizer.source,'sillytavern');assert.equal(c.chat.length,1);assert.equal([...records.values()][0].status,'complete');
  let finishTranslation;c.generateRaw=async p=>new Promise(resolve=>finishTranslation=()=>resolve(JSON.stringify({items:JSON.parse(p.prompt[1].content).items.map(x=>({...x,text:'Translated passage'}))})));
  click('#translate');await wait(()=>finishTranslation);click('[data-page=archive]');finishTranslation();await wait(()=>[...records.values()][0]?.translationView&&$('#translate'));assert($('#translate').classList.contains('active'));assert.equal([...records.values()][0].translationView.content,'Translated passage');
+ // Received malformed JSON is durable and can be edited without another model request.
+ let recoveryCalls=0;c.generateRaw=async()=>{recoveryCalls++;return '{"items":[{"id":0,"text":"번역문"自我"}]}';};
+ click('#retranslate');await wait(()=>records.values().next().value.translationRecovery?.error&&!$('#generate').disabled);
+ assert($('.translation-recovery'));assert.equal(records.values().next().value.translationView.content,'Translated passage');
+ const malformed=records.values().next().value.translationRecovery.responses[0];assert(malformed.includes('自我'));
+ $('#translation-recovery-text').value=JSON.stringify({items:[{id:0,text:'복구된 번역'}]});click('#translation-recovery-apply');
+ await wait(()=>records.values().next().value.translationView.content==='복구된 번역'&&!$('#generate').disabled);assert.equal(recoveryCalls,1);assert(!records.values().next().value.translationRecovery);assert(!$('.translation-recovery'));
  click('[data-page=archive]');assert($('.app').textContent.includes('카페 외전'));
  click('[data-page=settings]');assert($('.app').textContent.includes('현재 실리태번 연결'));
  assert(document.querySelector('#side-story-wand'));

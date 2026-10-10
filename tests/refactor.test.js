@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {DOMParser} from '../test-runtime/linkedom.mjs';
 import {createSTHost} from '../src/st-host.js';
 const read=name=>fs.readFileSync(new URL('../src/'+name,import.meta.url),'utf8');
-const C=new Function(read('replacement.js')+'\n'+read('core.js')+'\nreturn SideCore;')();
+const C=new Function(read('replacement.js')+'\n'+read('facet.js')+read('core.js')+'\nreturn SideCore;')();
 const extras=new Function('DOMParser',read('extras.js')+'\nreturn SideExtras;')(DOMParser);
 const fit=new Function(read('token-budget.js')+'\nreturn fitTokenBudget;')();
 

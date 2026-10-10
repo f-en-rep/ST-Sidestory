@@ -1,5 +1,5 @@
 /** SillyTavern adapter. Chat creation is an explicit user action. */
-export function createSTHost({context = () => globalThis.SillyTavern.getContext(), world = {}, state = {}, services = {}, fetcher = globalThis.fetch} = {}) {
+export function createSTHost({context = () => globalThis.SillyTavern.getContext(), world = {}, state = {}, services = {}, personasApi = {}, fetcher = globalThis.fetch} = {}) {
     let running = null;
     const cleanups = [];
     const get = () => context();
@@ -113,6 +113,46 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
         if(match)return entries(decodeURIComponent(match[1]),signal);
         throw new Error('실리태번 이식판에서 지원하지 않는 요청: '+route);
     }
+    async function avatarFile(url) {
+        const response=await fetcher(url,{method:'GET',cache:'no-store'});
+        if(!response.ok)throw new Error('원본 이미지 읽기 실패: '+response.status);
+        const blob=await response.blob();
+        if(!blob?.size||!String(blob.type||'').startsWith('image/'))throw new Error('유효한 이미지 파일이 아니에요.');
+        const extension=blob.type==='image/jpeg'?'jpg':blob.type==='image/webp'?'webp':'png';
+        return new File([blob],'avatar.'+extension,{type:blob.type});
+    }
+    async function createCharacterFromProfile({name,description,sourceAvatar=''}) {
+        if(!String(name||'').trim()||!String(description||'').trim())throw new Error('캐릭터 이름과 프로필이 필요해요.');
+        const c=get(),data={ch_name:String(name).trim().slice(0,120),description:String(description),personality:'',scenario:'',first_mes:'',mes_example:''};
+        let image=null;
+        if(sourceAvatar){try{image=await avatarFile('characters/'+encodeURIComponent(sourceAvatar));}catch(e){console.warn('[Side Story] 원본 캐릭터 이미지 복사 실패, 기본 이미지 사용:',e);}}
+        let headers,body;
+        if(image){const form=new FormData();for(const [k,v]of Object.entries(data))form.append(k,v);form.append('avatar',image);headers=c.getRequestHeaders({omitContentType:true});body=form;}
+        else{headers=c.getRequestHeaders();body=JSON.stringify(data);}
+        const response=await fetcher('/api/characters/create',{method:'POST',headers,body});
+        if(!response.ok)throw new Error('새 캐릭터 저장 실패: '+response.status);
+        const avatar=await response.text();
+        try{await c.getCharacters?.();}catch{}
+        return avatar;
+    }
+    async function createPersonaFromProfile({name,description,sourceAvatar=''}) {
+        if(!String(name||'').trim()||!String(description||'').trim())throw new Error('페르소나 이름과 프로필이 필요해요.');
+        if(typeof personasApi.initPersona!=='function')throw new Error('실리태번 페르소나 모듈을 불러올 수 없어요. 최신 실리태번에서 다시 시도해 주세요.');
+        const c=get();
+        let image;
+        if(sourceAvatar){try{image=await avatarFile('User Avatars/'+encodeURIComponent(sourceAvatar));}catch(e){console.warn('[Side Story] 원본 페르소나 이미지 복사 실패, 기본 이미지 사용:',e);}}
+        if(!image)image=await avatarFile(state.default_user_avatar||'img/user-default.png');
+        const form=new FormData();form.append('avatar',image);
+        const id='side-story-'+(c.uuidv4?.()||globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2))+'.png';
+        form.append('overwrite_name',id);
+        const response=await fetcher('/api/avatars/upload',{method:'POST',headers:c.getRequestHeaders({omitContentType:true}),body:form});
+        if(!response.ok)throw new Error('페르소나 이미지 저장 실패: '+response.status);
+        const result=await response.json(),avatarId=result?.path;
+        if(!avatarId||avatarId!==id)throw new Error('새 페르소나 이미지 저장 결과를 확인할 수 없어요.');
+        await personasApi.initPersona(avatarId,String(name).trim().slice(0,120),String(description),'');
+        try{await personasApi.getUserAvatars?.(true,avatarId);}catch(e){console.warn('[Side Story] 페르소나 목록 새로고침 실패:',e);}
+        return avatarId;
+    }
     async function createChatFromRecord(record) {
         const c=get(),origin=currentChatId();
         if(running||(typeof state.isGenerating==='function'&&state.isGenerating())||c.isSendPress||(typeof c.isGenerating==='function'?c.isGenerating():c.isGenerating))throw new Error('생성이 끝난 뒤 새 채팅을 만들어 주세요.');
@@ -176,7 +216,7 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
         } finally {signal?.removeEventListener('abort',handler);}
     }
     return {
-        request,generate,createChatFromRecord,currentChatId,currentChat,linked,currentPersona,tokenCounter,connections,
+        request,generate,createChatFromRecord,createCharacterFromProfile,createPersonaFromProfile,currentChatId,currentChat,linked,currentPersona,tokenCounter,connections,
         storage:{async get(){return {sideStory:get().extensionSettings?.st_sidestory||{}};},async patch(value){const c=get();if(!c.extensionSettings||typeof c.saveSettingsDebounced!=='function')throw new Error('실리태번 설정 저장 API를 찾지 못했어요.');c.extensionSettings.st_sidestory=structuredClone(value.sideStory);c.saveSettingsDebounced();}},
         setTimeout:globalThis.setTimeout.bind(globalThis),clearTimeout:globalThis.clearTimeout.bind(globalThis),
         onCleanup(fn){cleanups.push(fn);},cleanup(){for(const fn of cleanups.splice(0))fn();}

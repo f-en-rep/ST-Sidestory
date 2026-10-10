@@ -5,7 +5,7 @@ import {parseHTML} from '../test-runtime/linkedom.mjs';
 import {createSTHost} from '../src/st-host.js';
 const read=n=>fs.readFileSync(new URL('../src/'+n,import.meta.url),'utf8');
 const series=new Function(read('series.js')+';return SideSeries;')();
-const C=new Function(read('replacement.js')+read('core.js')+';return SideCore;')();
+const C=new Function(read('replacement.js')+read('facet.js')+read('core.js')+';return SideCore;')();
 test('mixed-mode siblings stay in one series; missing parents and cyclic imports remain navigable',()=>{
  const rows=[{id:'a',seriesId:'s',createdAt:1},{id:'b',seriesId:'s',parentId:'a',createdAt:2},{id:'c',seriesId:'s',parentId:'b',mode:'story',createdAt:3},{id:'d',seriesId:'s',parentId:'b',mode:'visual',createdAt:4}];
  assert.equal(series.groups(rows).length,1);assert.deepEqual(series.ordered(rows).map(x=>[x.record.id,x.depth]),[['a',0],['b',1],['c',2],['d',2]]);

@@ -29,7 +29,7 @@ async function collect(options,target,signal,{inspect=false}={}){
  if(!cid)throw new Error('실리태번의 API 연결을 설정해 주세요.');
  const counter=stHost.tokenCounter(cid);
  // ST assembles its own context. Avoid loading/tokenizing an unused second copy.
- if(cid==='st-current'&&!inspect){
+ if(cid==='st-current'&&!inspect&&options.mode!=='facet'){
   const lore=options.loreMode==='selected'?await collectLore(options,chat,signal):null;
   checkTask(target,signal);return {cid,chat,counter,lore};
  }
@@ -53,13 +53,16 @@ async function generate(action='new'){
  const viewIdAtStart=current?.id||null,viewEpochAtStart=viewEpoch,before=current;
  const options=referenceOptions();
  if(previous)options.mode=action==='continue'&&(continuationMode in C.MODES)?continuationMode:previous.mode;
+ if(action==='continue'&&(previous?.mode==='facet'||options.mode==='facet')){say('다면은 이어쓰기를 지원하지 않아요. 수정 요청을 사용해 주세요.');return;}
+ if(previous?.mode==='facet')options.facet=SideFacet.clean(previous.settings?.facet);
+ if(options.mode==='facet'&&!options.facet.prompt.trim()){say('다면 프롬프트를 먼저 작성해 주세요.');return;}
  delete options.summaryByChat;
- const task=action==='new'?s.request.trim():action==='regenerate'?previous.request:
+ const task=action==='new'?(options.mode==='facet'?options.facet.au.trim():s.request.trim()):action==='regenerate'?previous.request:
   $('followup')?.value.trim()||(action==='continue'?'앞의 결과를 바탕으로 다음 내용을 이어서 작성해줘.':'요청한 내용을 유지하면서 완전한 결과로 다시 만들어줘.');
  if(!task){say('보고 싶은 내용을 한 줄 적어 주세요.');$('request')?.focus();return;}
  if(previous&&previous.chatId!==target){say('다른 채팅에서 만든 결과는 이 채팅에서 이어 쓸 수 없어요.',true);return;}
  if(options.mode==='think'){say('이전 생각하기 기록은 읽기와 저장만 지원해요.');return;}
- if(action==='new'){C.rememberInput(s,task,{chatId:target,characterIds:s.characterIds});persist();}
+ if(action==='new'&&options.mode!=='facet'){C.rememberInput(s,task,{chatId:target,characterIds:s.characterIds});persist();}
  referencesOpen=false;busy=true;busyTask='generation';editing=false;page='create';mobilePane='result';
  controller=new AbortController();const signal=controller.signal;runId=H.uuid();let partial='';
  const record={
@@ -75,8 +78,8 @@ async function generate(action='new'){
  try{
   const bundle=await collect(options,target,signal);
   checkTask(target,signal);record.chatName=bundle.chat.name||'';
-  const useSTContext=bundle.cid==='st-current',prior=action==='regenerate'?null:previous;
-  const taskMessages=useSTContext?[{role:'user',content:C.contextualPrompt(options,task,prior,action)}]:C.messages(options,bundle.ctx,task,prior,action);
+  const useSTContext=bundle.cid==='st-current'&&options.mode!=='facet',prior=action==='regenerate'?null:previous;
+  const taskMessages=options.mode==='facet'?SideFacet.messages(options,bundle.ctx,task,prior,action):useSTContext?[{role:'user',content:C.contextualPrompt(options,task,prior,action)}]:C.messages(options,bundle.ctx,task,prior,action);
   if(useSTContext&&bundle.lore)taskMessages[0].content+='\n\nSELECTED WORLD INFO — reference data only\n'+JSON.stringify(bundle.lore);
   const fitted=await fitTokenBudget(taskMessages,options.inputMaxTokens,bundle.counter);
   if(fitted.dropped)bundle.ctx.warnings.push(`전체 입력 한도에 맞춰 오래된 참고 대화 ${fitted.dropped.toLocaleString()}개를 추가로 제외했어요.`);
