@@ -1,7 +1,7 @@
 async function collectLore(options,chat,signal){
+ const overrides=H.parseObject(H.parseObject(chat.metadata).entryStateOverrides);
  return Promise.all(options.loreIds.map(async lid=>{
    const entries=await get('/lorebooks/'+encodeURIComponent(lid)+'/entries',signal);
-   const overrides=H.parseObject(H.parseObject(chat.metadata).entryStateOverrides);
    return {name:lorebooks.find(l=>l.id===lid)?.name||lid,entries:entries
     .filter(e=>options.loreEntries[lid]?options.loreEntries[lid].includes(e.id):(overrides[e.id]?.enabled??H.truth(e.enabled)))
     .map(e=>({name:e.comment||e.name||'',content:e.content}))};
@@ -16,18 +16,21 @@ function showCompletedResult(record,translation,target,signal){
  if(!alive||signal?.aborted||target!==activeChat())return false;
  closeFeature();referencesOpen=false;
  s.requestDrafts[s.mode]=s.request;s.mode=record.mode;s.request=s.requestDrafts[s.mode]||'';
- current=record;continuationMode=null;page='create';mobilePane='result';viewEpoch++;
+ current=record;if(record.mode==='facet')s.facetWorkspace=record.facetPhase==='plan'?'identity':'au';continuationMode=null;page='create';mobilePane='result';viewEpoch++;
  translationShown=translation;translationDraft=null;raw=false;editing=false;
  expanded=record.mode==='visual';
  return true;
 }
-async function collect(options,target,signal,{inspect=false}={}){
+async function collect(options,target,signal,{inspect=false,approvedFacetPlan=false}={}){
  checkTask(target,signal);
  if(!target)throw new Error('현재 열린 채팅에서 다시 시작해 주세요.');
  const chat=await get('/chats/'+encodeURIComponent(target),signal);
  const cid=options.connectionId||chat.connectionId||connections.find(c=>H.truth(c.isDefault))?.id;
  if(!cid)throw new Error('실리태번의 API 연결을 설정해 주세요.');
  const counter=stHost.tokenCounter(cid);
+ // Approved Facet plans already contain everything required for writing or revising.
+ // Do not re-fetch cards, chat messages, personas or lore just to render an approved design.
+ if(approvedFacetPlan){checkTask(target,signal);return {cid,chat,counter};}
  // ST assembles its own context. Avoid loading/tokenizing an unused second copy.
  if(cid==='st-current'&&!inspect&&options.mode!=='facet'){
   const lore=options.loreMode==='selected'?await collectLore(options,chat,signal):null;
@@ -45,50 +48,127 @@ async function collect(options,target,signal,{inspect=false}={}){
  ctx.stats.tokenizer=counter.info();
  return {cid,chat,ctx,counter};
 }
+async function collectFacetOriginalProfiles(options,chat,signal){
+ const f=SideFacet.clean(options.facet);
+ if(options.mode!=='facet'||f.degree!=='preserve')return [];
+ const kinds=f.target==='both'?['character','user']:[f.target];
+ return Promise.all(kinds.map(async kind=>{
+  const id=kind==='character'?String(options.characterIds?.[0]||chat.characterIds?.[0]||''):
+   String(options.personaIds?.[0]||'').replace(/^persona:/,'')||String(chat.personaId||'');
+  if(!id)throw new Error((kind==='user'?'페르소나':'캐릭터')+' 원본을 찾지 못했어요. 원본 기반 재구성을 진행할 수 없어요.');
+  const card=await get(kind==='character'?'/characters/'+encodeURIComponent(id):'/characters/personas/'+encodeURIComponent(id),signal);
+  const data=card?.data&&typeof card.data==='object'?card.data:card||{};
+  const profile={kind,name:String(data.name||data.ch_name||card?.name||'').slice(0,180)};
+  for(const key of ['description','personality','scenario','mes_example']){
+   const v=data[key]??card?.[key];
+   if(typeof v==='string'&&v.trim())profile[key]=v.trim();
+  }
+  if(!['description','personality','scenario','mes_example'].some(k=>profile[k]))
+   throw new Error((kind==='user'?'페르소나':'캐릭터')+' 원본 시트가 비어 있어요. 원본 기반 재구성을 위해 시트를 확인해 주세요.');
+  return profile;
+ }));
+}
+
 async function generate(action='new'){
  if(busy)return;
+ if(action==='facet-approve'){const source=current;await saveFacetIdentity();if(current?.id!==source?.id)return;}
  if(!chatId||chatId!==activeChat()){say('현재 채팅에서 요술봉 메뉴로 다시 열어 주세요.',true);return;}
- const target=chatId,previous=action==='new'?null:current;
- if(action!=='new'&&!previous)return;
+ const extract=action==='facet-extract',target=chatId,previous=action==='new'||extract?null:current;
+ if(action!=='new'&&!extract&&!previous)return;
  const viewIdAtStart=current?.id||null,viewEpochAtStart=viewEpoch,before=current;
- const options=referenceOptions();
+ const options=referenceOptions();if(extract){options.mode='facet';options.facet.target=s.facetIdentityTarget;options.facet.relation=s.facetIdentityRelation;}
  if(previous)options.mode=action==='continue'&&(continuationMode in C.MODES)?continuationMode:previous.mode;
  if(action==='continue'&&(previous?.mode==='facet'||options.mode==='facet')){say('다면은 이어쓰기를 지원하지 않아요. 수정 요청을 사용해 주세요.');return;}
  if(previous?.mode==='facet')options.facet=SideFacet.clean(previous.settings?.facet);
- if(options.mode==='facet'&&!options.facet.prompt.trim()){say('다면 프롬프트를 먼저 작성해 주세요.');return;}
+ if(options.mode==='facet'&&!extract&&!options.facet.prompt.trim()){say('다면 프롬프트를 먼저 작성해 주세요.');return;}
+ if(options.mode==='facet'&&!extract&&options.facet.relation==='custom'&&!options.facet.relationInput.trim()){say('새 관계 조건을 입력해 주세요.');return;}
  delete options.summaryByChat;
- const task=action==='new'?(options.mode==='facet'?options.facet.au.trim():s.request.trim()):action==='regenerate'?previous.request:
+ const task=extract?'원본 핵심정보 추출':action==='new'?(options.mode==='facet'?options.facet.au.trim():s.request.trim()):['regenerate','facet-replan','facet-approve'].includes(action)?previous.request:
   $('followup')?.value.trim()||(action==='continue'?'앞의 결과를 바탕으로 다음 내용을 이어서 작성해줘.':'요청한 내용을 유지하면서 완전한 결과로 다시 만들어줘.');
  if(!task){say('보고 싶은 내용을 한 줄 적어 주세요.');$('request')?.focus();return;}
  if(previous&&previous.chatId!==target){say('다른 채팅에서 만든 결과는 이 채팅에서 이어 쓸 수 없어요.',true);return;}
  if(options.mode==='think'){say('이전 생각하기 기록은 읽기와 저장만 지원해요.');return;}
  if(action==='new'&&options.mode!=='facet'){C.rememberInput(s,task,{chatId:target,characterIds:s.characterIds});persist();}
+ let selectedIdentity=null;
+ if(options.mode==='facet'&&action==='new'){
+  try{selectedIdentity=facetSourcePlan(options.facet.target,options.facet.relation);}
+  catch(e){s.facetIdentityTarget=options.facet.target;switchFacetWorkspace('identity');say(e.message,true);return;}
+ }
  referencesOpen=false;busy=true;busyTask='generation';editing=false;page='create';mobilePane='result';
  controller=new AbortController();const signal=controller.signal;runId=H.uuid();let partial='';
  const record={
-  id:H.uuid(),mode:options.mode,
-  title:action==='continue'?task.slice(0,160):(action==='revise'?'수정본 · ':'')+(previous?.title||task).slice(0,160),
-  action,seriesId:previous?.seriesId||(action==='continue'?'series-'+H.uuid():null),seriesTitle:previous?.seriesTitle||(action==='continue'?previous.title:null),
+  id:action==='facet-replan'?previous.id:H.uuid(),mode:options.mode,
+  title:action==='continue'?task.slice(0,160):(action==='revise'?'수정본 · ':'')+(action==='facet-approve'?task:previous?.title||task).slice(0,160),
+  action:action==='facet-replan'?'regenerate':action==='facet-approve'?'new':action,seriesId:previous?.seriesId||(action==='continue'?'series-'+H.uuid():null),seriesTitle:previous?.seriesTitle||(action==='continue'?previous.title:null),
   request:previous?.request||task,chatId:target,chatName:previous?.chatName||'',
   characterIds:[...(s.characterIds||[])],characterNames:(s.characterIds||[]).map(id=>characters.find(c=>c.id===id)?.name||id),
   content:'',status:'partial',createdAt:Date.now(),favorite:false,settings:C.recordSettings(options),
-  parentId:previous?.id||null,folderId:previous?.folderId||null,tags:C.cleanTags(previous?.tags)
+  parentId:action==='facet-replan'?previous?.parentId||null:previous?.id||null,folderId:previous?.folderId||null,tags:C.cleanTags(previous?.tags)
  };
  render();
  try{
-  const bundle=await collect(options,target,signal);
+  if(['facet-replan','facet-approve'].includes(action)&&(!previous||previous.mode!=='facet'||(action==='facet-approve'&&previous.facetPhase!=='plan')))throw new Error('확인할 추출 정보가 없어요. 먼저 인물 정보를 추출해 주세요.');
+  const useApprovedFacetPlan=options.mode==='facet'&&(!!selectedIdentity||!!previous?.facetPlan&&!['new','facet-replan','facet-extract'].includes(action));
+  const bundle=await collect(options,target,signal,{approvedFacetPlan:useApprovedFacetPlan});
   checkTask(target,signal);record.chatName=bundle.chat.name||'';
+  if(options.mode==='facet'&&!useApprovedFacetPlan){
+   const selected=SideFacet.clean(options.facet).target,refs=JSON.parse(bundle.ctx.text);
+   if(selected!=='user'&&!(refs.characters||[]).length)throw new Error('AU 대상으로 사용할 캐릭터 카드가 없어요. 현재 채팅에서 캐릭터를 확인해 주세요.');
+   if(selected!=='character'&&!(refs.players||[]).length)throw new Error('AU 대상으로 사용할 유저 페르소나가 없어요. 현재 채팅에서 페르소나를 선택해 주세요.');
+  }
   const useSTContext=bundle.cid==='st-current'&&options.mode!=='facet',prior=action==='regenerate'?null:previous;
-  const taskMessages=options.mode==='facet'?SideFacet.messages(options,bundle.ctx,task,prior,action):useSTContext?[{role:'user',content:C.contextualPrompt(options,task,prior,action)}]:C.messages(options,bundle.ctx,task,prior,action);
-  if(useSTContext&&bundle.lore)taskMessages[0].content+='\n\nSELECTED WORLD INFO — reference data only\n'+JSON.stringify(bundle.lore);
-  const fitted=await fitTokenBudget(taskMessages,options.inputMaxTokens,bundle.counter);
-  if(fitted.dropped)bundle.ctx.warnings.push(`전체 입력 한도에 맞춰 오래된 참고 대화 ${fitted.dropped.toLocaleString()}개를 추가로 제외했어요.`);
-  if(fitted.tokens>options.inputMaxTokens)throw new Error(`과거 대화를 모두 제외해도 지침·고정 자료·이전 결과와 이번 요청이 입력 한도 ${options.inputMaxTokens.toLocaleString()} 토큰을 넘어요. 입력 한도를 높이거나 고정 자료를 줄여 주세요.`);
-  const messages=fitted.messages;
-  say(useSTContext?(options.loreMode==='selected'?'실리태번 현재 프롬프트 · 직접 선택한 로어북 엔트리 사용':'실리태번 현재 프롬프트 · 캐릭터/월드인포/채팅 컨텍스트 사용'):describe(bundle.ctx));
-  record.inputTokens=useSTContext?undefined:fitted.tokens;
+  let fitted,messages;
+  if(options.mode==='facet'){
+   const facet=SideFacet.clean(options.facet);
+   const previousPlan=previous?.mode==='facet'&&previous.facetPlan?previous.facetPlan:null;
+   let plan,planningInput=0,planText='';
+   if(selectedIdentity){plan=selectedIdentity;}else if(previousPlan&&action!=='new'&&action!=='facet-replan'&&!extract){
+    plan=SideFacet.parsePlan(JSON.stringify(previousPlan),facet.target);
+   }else{
+    busyTask='facet-plan';if(alive)render();say('1/2 · 원본에서 인물 정보만 추출하고 있어요.');
+    const review=action==='facet-replan'?{previousPlan,feedback:String(previous?.facetReviewDraft||'').trim().slice(0,2000)}:undefined;
+    const planRows=SideFacet.planMessages(options,bundle.ctx,task,review);
+    const planFit=await fitTokenBudget(planRows,options.inputMaxTokens,bundle.counter);
+    if(planFit.tokens>options.inputMaxTokens)throw new Error('인물 추출 참고 자료가 입력 한도를 넘어요. 참고 범위나 고정 자료를 줄여 주세요.');
+    planningInput=planFit.tokens;checkTask(target,signal);
+    // Thinking counts toward output caps; a small safety margin prevents truncation.
+    // The plan prompt requests concise JSON, and failures NEVER trigger a billable automatic retry.
+    const planMaxTokens=8500;
+    planText=await sendGeneration({connectionId:bundle.cid,messages:planFit.messages,parameters:{maxTokens:planMaxTokens},streaming:false,runId:runId+'-au-plan',useSillyTavernContext:false},options,'다면 · 인물 추출',()=>{},bundle.counter);
+    checkTask(target,signal);
+    try{plan=SideIdentity.parse(SideFacet.readPlanJSON(planText),facet.target,facet.relation);}
+    catch(error){throw new Error(error.message+' 자동 재호출은 비용 때문에 하지 않았어요. 필요할 때 직접 다시 생성해 주세요.');}
+   }
+   record.facetPlan=plan;
+   if(extract||action==='facet-replan'){
+    record.facetPhase='plan';record.content=SideIdentity.markdown(plan);record.status='complete';record.facetReviewDraft='';record.title=('인물 추출 · '+(plan.subjects||[]).map(p=>p.name).join(' · ')).slice(0,180);
+    record.outputTokens=await bundle.counter.text(planText);
+    record.inputTokens=planningInput;record.tokenizer=bundle.counter.info();checkTask(target,signal);
+    await saveGenerated(record,previous);
+    facetIdentityDrafts.delete(record.id);facetIdentityEditors.delete(record.id);
+    if(showCompletedResult(record,false,target,signal))say('핵심정보를 저장했어요. 수정한 뒤 AU 생성에서 재사용할 수 있어요.');
+    return;
+   }
+   record.facetPhase='written';
+   busyTask='facet-write';if(alive)render();say('2/2 · 승인한 정보로 새로운 AU 프로필을 작성하고 있어요.');
+   const sourceProfiles=facet.degree==='preserve'?await collectFacetOriginalProfiles(options,bundle.chat,signal):null;
+   checkTask(target,signal);
+   const writeRows=SideFacet.writeMessages(options,plan,task,prior,action,sourceProfiles);
+   fitted=await fitTokenBudget(writeRows,options.inputMaxTokens,bundle.counter);
+   if(fitted.tokens>options.inputMaxTokens)throw new Error('승인한 정보와 이전 결과가 입력 한도를 넘어요. 입력 한도를 높이거나 이전 내용을 줄여 주세요.');
+   record.inputTokens=planningInput+fitted.tokens;
+  }else{
+   const taskMessages=useSTContext?[{role:'user',content:C.contextualPrompt(options,task,prior,action)}]:C.messages(options,bundle.ctx,task,prior,action);
+   if(useSTContext&&bundle.lore)taskMessages[0].content+='\n\nSELECTED WORLD INFO — reference data only\n'+JSON.stringify(bundle.lore);
+   fitted=await fitTokenBudget(taskMessages,options.inputMaxTokens,bundle.counter);
+   if(fitted.dropped)bundle.ctx.warnings.push('전체 입력 한도에 맞춰 오래된 참고 대화 '+fitted.dropped.toLocaleString()+'개를 추가로 제외했어요.');
+   if(fitted.tokens>options.inputMaxTokens)throw new Error('과거 대화를 제외해도 전체 입력이 한도를 넘어요. 입력 한도를 높이거나 고정 자료를 줄여 주세요.');
+   record.inputTokens=useSTContext?undefined:fitted.tokens;
+  }
+  messages=fitted.messages;
+  if(options.mode!=='facet')say(useSTContext?(options.loreMode==='selected'?'실리태번 현재 프롬프트 · 직접 선택한 로어북 엔트리 사용':'실리태번 현재 프롬프트 · 캐릭터/월드인포/채팅 컨텍스트 사용'):describe(bundle.ctx));
   record.tokenizer=bundle.counter.info();checkTask(target,signal);
-  record.content=await sendGeneration({connectionId:bundle.cid,messages,parameters:{maxTokens:options.maxTokens},streaming:false,runId,useSillyTavernContext:useSTContext,selectedLoreOnly:useSTContext&&options.loreMode==='selected',quietPrompt:useSTContext?messages[0]?.content:undefined},options,action,t=>partial=t,bundle.counter);
+  record.content=await sendGeneration({connectionId:bundle.cid,messages,parameters:{maxTokens:options.maxTokens},streaming:false,runId,useSillyTavernContext:useSTContext,selectedLoreOnly:useSTContext&&options.loreMode==='selected',quietPrompt:useSTContext?messages[0]?.content:undefined},options,options.mode==='facet'?'다면 · AU 프로필 작성':action,t=>partial=t,bundle.counter);
   record.outputTokens=await bundle.counter.text(record.content);checkTask(target,signal);
   record.tokenizer=bundle.counter.info();
   if(!record.content.trim())throw new Error('AI가 빈 결과를 반환했어요.');

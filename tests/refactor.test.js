@@ -73,3 +73,53 @@ test('complete results reveal the result page but never cross a cancelled task o
  fixture.change('B');assert(!fixture.show({id:'late'},false,'A',controller.signal));assert.equal(fixture.state().current.id,'new');
  fixture.change('A');controller.abort();assert(!fixture.show({id:'late'},false,'A',controller.signal));assert.throws(()=>fixture.check('A',controller.signal),{name:'AbortError'});
 });
+
+test('approved AU plans skip original card, chat and lore retrieval; fresh plans still load sources',async()=>{
+ const source=read('generation.js');
+ const collectSource=source.slice(source.indexOf('async function collect('),source.indexOf('async function generate('));
+ const requests=[];
+ const setup=[
+  "const alive=true,connections=[],chatId='room';",
+  "const activeChat=()=>chatId;",
+  "const checkTask=()=>{};",
+  "const H={truth:x=>x===true,context:async()=>{requests.push('context');return {stats:{},text:'{}'};}};",
+  "const get=async uri=>{requests.push(uri);if(uri==='/chats/room')return {name:'Room',connectionId:'st-current',characterIds:['character'],personaId:'persona',metadata:{}};return {};};",
+  "const stHost={tokenCounter:()=>({info:()=>({label:'test'})})};",
+  "const collectLore=async()=>{requests.push('lore');return []};",
+  collectSource,
+  "return collect;"
+ ].join('\n');
+ const collect=new Function('requests',setup)(requests);
+ const options={mode:'facet',connectionId:'st-current',referenceMode:'all',loreIds:[],loreEntries:{}};
+ const signal=new AbortController().signal;
+ const approved=await collect(options,'room',signal,{approvedFacetPlan:true});
+ assert.equal(approved.chat.name,'Room');
+ assert(!('ctx' in approved));
+ assert.deepEqual(requests,['/chats/room']);
+ requests.length=0;
+ const fresh=await collect(options,'room',signal);
+ assert(fresh.ctx);
+ assert(requests.includes('/chats/room/messages'));
+ assert(requests.includes('/characters/character'));
+ assert(requests.includes('/characters/personas/persona'));
+ assert(requests.includes('lore'));
+ assert(requests.includes('context'));
+});
+test('generated extension bundle stays in sync with shipped modules and style source',()=>{
+ const bundle=fs.readFileSync(new URL('../index.js',import.meta.url),'utf8');
+ const style=read('style.css'),start=bundle.indexOf('const SIDE_STYLE='),end=bundle.indexOf(';\n',start);
+ assert(start>=0&&end>start);
+ assert.equal(JSON.parse(bundle.slice(start+'const SIDE_STYLE='.length,end)),style);
+ for(const path of ['facet.js','generation.js','core.js','extension.js','reading-ui.js','renderer.js']){
+  assert(bundle.includes(read(path)),path+' out of sync');
+ }
+});
+test('cleaned CSS removes obsolete UI classes while retaining current AU and mobile styles',()=>{
+ const style=read('style.css');
+ for(const orphan of ['logo','summary-input','settings-grid','chat-mode-badge','archive-header-actions']){
+  assert(!new RegExp('\\.'+orphan+'(?![\\w-])').test(style),orphan+' should be unused');
+ }
+ for(const live of ['facet-plan-preview','facet-plan-actions','archive','mobile-switch','reader']){
+  assert(style.includes('.'+live),live+' should be retained');
+ }
+});
