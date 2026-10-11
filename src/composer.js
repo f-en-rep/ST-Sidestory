@@ -10,7 +10,7 @@ function switchWorkMode(mode){
  if(current?.chatId===chatId)workResults.set(current.mode,current);
  s.mode=mode;s.request=s.requestDrafts[mode]||'';
  if(isInner(mode))lastInnerMode=mode;else if(mode!=='facet')lastOuterMode=mode;
- const cached=workResults.get(mode);current=cached?records.find(r=>r.id===cached.id&&r.chatId===chatId)||null:null;
+ const cached=workResults.get(mode);current=cached?records.find(r=>r.id===cached.id&&r.chatId===chatId)||null:null;if(mode==='facet'&&!facetWorkspaceMatches(current,s.facetWorkspace))current=records.filter(r=>r.chatId===chatId&&facetWorkspaceMatches(r,s.facetWorkspace)).sort((a,b)=>b.createdAt-a.createdAt)[0]||null;
  page='create';viewEpoch++;expanded=false;mobilePane='compose';raw=false;editing=false;translationDraft=null;translationShown=false;referencesOpen=false;
  persist();render();
 }

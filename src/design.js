@@ -17,7 +17,7 @@ function settingsSection(title,body,note=''){return `<section class="settings-ca
 function tokenFields(){return tokenControls().replace(/^<details[^>]*><summary>[^<]*<\/summary>/,'').replace(/<\/details>$/,'');}
 function settingsContent(){switch(settingsTab){
 case 'connections':return settingsSection('API 연결','<button id="refresh" class="text-action">연결 목록 새로고침</button>'+generationConnection()+field('번역용 API 연결',select('translationConnectionId',[['','생성용 연결과 동일'],...connections.map(c=>[c.id,c.name+' · '+(c.model||c.provider)])])),'“현재 실리태번 연결”을 쓰면 캐릭터 카드·월드인포·Author’s Note·현재 채팅 등 실리태번이 실제로 조립한 프롬프트 뒤에 Side Story 지침을 붙여 생성해요. 로어북을 직접 선택하면 자동 월드인포 대신 체크한 엔트리만 사용해요. 별도 연결 프로필은 기존 Side Story 참고자료 조립 방식을 사용해요.');
-case 'generation':return settingsSection('분량과 토큰 한도',tokenFields()+'<p class="hint">입력 한도는 ST 토크나이저로 계산하며 메시지 여유분을 포함해요. 별도 프로필을 쓰더라도 계산은 현재 실리태번 연결 모델 기준이에요. 토크나이저를 사용할 수 없으면 추정값이라고 표시해요.</p>','분석·스토리·HTML은 토큰 목표를, 내면은 질문에 맞는 자연스러운 분량을 사용해요.');
+case 'generation':return settingsSection('상세도와 토큰 한도',tokenFields()+'<p class="hint">상세도는 요청에 맞는 정보·묘사 밀도만 조절하고, 출력 토큰 수를 목표로 지정하지 않아요. 최대 출력 토큰은 고급 한도로 별도 유지돼요. 입력 한도는 ST 토크나이저 기준이며 계산할 수 없으면 추정값으로 표시해요.</p>','간결히 / 보통 / 자세히 선택은 길이 할당이 아니라 내용의 상세도 설정이에요.');
 case 'translation':return settingsSection('번역 설정',translationSettings().replace('<h2>번역</h2>',''),'원문은 보존하고 같은 결과 안에서 번역을 전환해요.');
 case 'replacement':return settingsSection('정규식','<button id="open-replacements">정규식 설정</button><p class="hint">원문과 번역문에 적용하고, 발췌 이미지에서는 적용 여부를 따로 선택해요.</p>');
 case 'reading':return settingsSection('분석 · 이야기',viewerControls(),'글의 모양만 바뀌며 저장 원문에는 영향을 주지 않아요.')+settingsSection('HTML',viewerControls(true),'기본은 HTML 자체의 스타일을 유지해요.');
