@@ -115,7 +115,7 @@ test('saved identity records are reusable for multiple AUs without another extra
  }
  const paired=I.parse(source,'both','original');
  assert.equal(I.combineSources({character:{id:'same',facetPlan:paired},user:{id:'same',facetPlan:paired}},'both','original').relationship,'siblings');
- assert.throws(()=>I.combineSources({character,user:persona},'both','original'),/동일한 기록/);
+ assert.equal(I.combineSources({character,user:persona},'both','original').relationship,''); // relationship can be sourced from RP history later
 });
 test('Facet workspaces retain identity selections and default to AU',()=>{
  const base=C.settings({});
@@ -147,7 +147,7 @@ test('only source-focused AU writing fetches original sheets, never the extracti
  const code=read('generation.js');
  assert(code.includes("if(options.mode!=='facet'||f.degree!=='preserve')return []"));
  assert(code.includes("const sourceProfiles=facet.degree==='preserve'?await collectFacetOriginalProfiles(options,bundle.chat,signal):null"));
- assert(code.includes("SideFacet.writeMessages(options,plan,task,prior,action,sourceProfiles)"));
+ assert(code.includes("SideFacet.writeMessages(options,plan,task,prior,action,sourceProfiles,relationshipEvidence)"));
  assert(code.indexOf("if(extract||action==='facet-replan')")<code.indexOf("const sourceProfiles=facet.degree"));
 });
 

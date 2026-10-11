@@ -76,7 +76,7 @@ test('dual-target output can save each complete source sheet independently',()=>
  assert.throws(()=>F.profileForSave('no section markers',{target:'both'},'user'),/구분 표시/);
  assert.throws(()=>F.profileForSave('text',{target:'user'},'character'),/일치하지/);
  assert.equal(F.profileForSave('Name: B',{target:'user'},'user'),'Name: B');
- const messages=F.messages({facet:{target:'both',relation:'original',au:'Hunter'},lengthPreset:'detailed',language:'한국어'},
+ const messages=F.messages({facet:{target:'both',relation:'original',detail:'detailed',au:'Hunter'},lengthPreset:'normal',language:'한국어'},
  {text:JSON.stringify({characters:[{name:'A'}],players:[{name:'B'}]})},'Hunter',null,'new');
  assert(messages[0].content.includes('SIDESTORY_CHARACTER_PROFILE'));
  assert(messages[0].content.includes('SIDESTORY_USER_PROFILE'));

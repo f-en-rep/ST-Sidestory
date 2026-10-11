@@ -52,6 +52,12 @@ async function collectFacetOriginalProfiles(options,chat,signal){
  const f=SideFacet.clean(options.facet);
  if(options.mode!=='facet'||f.degree!=='preserve')return [];
  const kinds=f.target==='both'?['character','user']:[f.target];
+ // When preserving the original relationship, the counterpart sheet may provide facts
+ // even if the user asks to generate just one final profile.
+ if(f.relation==='original'){
+  if((options.characterIds?.[0]||chat.characterIds?.[0])&&!kinds.includes('character'))kinds.push('character');
+  if((options.personaIds?.[0]||chat.personaId)&&!kinds.includes('user'))kinds.push('user');
+ }
  return Promise.all(kinds.map(async kind=>{
   const id=kind==='character'?String(options.characterIds?.[0]||chat.characterIds?.[0]||''):
    String(options.personaIds?.[0]||'').replace(/^persona:/,'')||String(chat.personaId||'');
@@ -67,6 +73,52 @@ async function collectFacetOriginalProfiles(options,chat,signal){
    throw new Error((kind==='user'?'페르소나':'캐릭터')+' 원본 시트가 비어 있어요. 원본 기반 재구성을 위해 시트를 확인해 주세요.');
   return profile;
  }));
+}
+
+async function collectFacetRelationshipEvidence(options,chat,target,signal,counter){
+ const f=SideFacet.clean(options.facet);
+ if(options.mode!=='facet'||f.degree!=='preserve'||f.relation!=='original')return null;
+ const budget=Math.max(800,Math.min(11000,Math.floor((options.contextBudget||24000)*0.5),Math.floor((options.inputMaxTokens||64000)*0.38)));
+ const metadata=H.parseObject(chat.metadata),summary=[];
+ const evidence={chat:String(chat.name||'').slice(0,160),summary,dialogue:[]};
+ const candidates=[metadata.summary,chat.summary,options.manualSummary].filter(v=>typeof v==='string'&&v.trim());
+ // Chat summaries supply long-term context even when specific early dialogue is no longer in the selection.
+ for(const value of [...new Set(candidates.map(v=>v.trim()))]){
+  let excerpt=value.slice(0,18000);
+  while(excerpt.length>200&&await counter.text(JSON.stringify({...evidence,summary:[...summary,excerpt]}))>budget*0.55)excerpt=excerpt.slice(0,Math.floor(excerpt.length*.78));
+  if(await counter.text(JSON.stringify({...evidence,summary:[...summary,excerpt]}))<=budget*0.6)summary.push(excerpt);
+ }
+ let messages=[];
+ try {
+  const got=await get('/chats/'+encodeURIComponent(target)+'/messages',signal);
+  messages=Array.isArray(got)?got:Array.isArray(got?.messages)?got.messages:[];
+ }catch(error){
+  if(signal?.aborted||error?.name==='AbortError')throw error;
+  return summary.length?evidence:null;
+ }
+ checkTask(target,signal);
+ let eligible=messages.filter(m=>m&&m.role!=='system'&&!H.truth(H.parseObject(m.extra).hiddenFromAI)&&!H.truth(H.parseObject(m.extra).hiddenFromUser));
+ let boundary=-1;eligible.forEach((m,i)=>{if(H.truth(H.parseObject(m.extra).isConversationStart))boundary=i;});
+ if(boundary>=0)eligible=eligible.slice(boundary);
+ // Reserve room for the beginning of the relationship as well as recent progression.
+ const first=eligible.slice(0,Math.min(16,eligible.length));
+ const tail=eligible.slice(Math.max(first.length,eligible.length-105));
+ const convert=m=>({speaker:m.role==='user'?'PC':String(characters.find(x=>x.id===m.characterId)?.name||m.role||'캐릭터').slice(0,100),text:String(m.content||'').trim().slice(0,1800)});
+ const selected=[];
+ for(const m of first){
+  const entry=convert(m);if(!entry.text)continue;
+  if(await counter.text(JSON.stringify({...evidence,dialogue:[...selected,entry]}))>budget*0.45)break;
+  selected.push(entry);
+ }
+ // Include recent exchanges, trimming the oldest first when the budget is full.
+ const recent=[];
+ for(let i=tail.length-1;i>=0;i--){
+  const entry=convert(tail[i]);if(!entry.text)continue;
+  if(await counter.text(JSON.stringify({...evidence,dialogue:[...selected,entry,...recent]}))>budget)continue;
+  recent.unshift(entry);
+ }
+ evidence.dialogue=[...selected,...recent];
+ return summary.length||evidence.dialogue.length?evidence:null;
 }
 
 async function generate(action='new'){
@@ -152,8 +204,11 @@ async function generate(action='new'){
    record.facetPhase='written';
    busyTask='facet-write';if(alive)render();say('2/2 · 승인한 정보로 새로운 AU 프로필을 작성하고 있어요.');
    const sourceProfiles=facet.degree==='preserve'?await collectFacetOriginalProfiles(options,bundle.chat,signal):null;
+   // Approved identity extraction stays profile-only. Relationship history is read only
+   // for source-focused AU writing when the original relationship was requested.
+   const relationshipEvidence=await collectFacetRelationshipEvidence(options,bundle.chat,target,signal,bundle.counter);
    checkTask(target,signal);
-   const writeRows=SideFacet.writeMessages(options,plan,task,prior,action,sourceProfiles);
+   const writeRows=SideFacet.writeMessages(options,plan,task,prior,action,sourceProfiles,relationshipEvidence);
    fitted=await fitTokenBudget(writeRows,options.inputMaxTokens,bundle.counter);
    if(fitted.tokens>options.inputMaxTokens)throw new Error('승인한 정보와 이전 결과가 입력 한도를 넘어요. 입력 한도를 높이거나 이전 내용을 줄여 주세요.');
    record.inputTokens=planningInput+fitted.tokens;
