@@ -10,7 +10,7 @@ test('0.7.15 saved defaults upgrade while edited prompt and individual macros su
  assert.equal(upgraded.promptRevision,F.defaults.promptRevision);
  assert.deepEqual(upgraded.phrases,F.defaults.phrases);
  const custom=F.clean({...previous,prompt:previous.prompt+'\nMY RULE',phrases:{...previous.phrases,rebuild:'MY REBUILD RULE'}});
- assert.equal(custom.prompt,previous.prompt+'\nMY RULE');
+ assert.equal(custom.prompt,previous.prompt.replace(/{{[^}]+}}/g,'')+'\nMY RULE');
  assert.equal(custom.phrases.rebuild,'MY REBUILD RULE');
  assert.equal(custom.phrases.preserve,F.defaults.phrases.preserve);
  assert.deepEqual(F.clean(custom),custom);

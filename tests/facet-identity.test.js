@@ -21,8 +21,8 @@ test('all four relationship modes survive settings and only original receives th
   const o=options(mode),rows=F.writeMessages(o,identity(),'AU');
   const data=JSON.parse(rows[1].content.split('reference\n')[1].split('\n\nAU REQUEST')[0]);
   assert.equal(data.relationship,mode==='original'?'siblings':'');
-  const request=JSON.parse(rows[1].content.split('AU REQUEST\n')[1]);
-  assert.equal(request.relationshipMode,mode);assert.equal(request.relationshipInput,mode==='custom'?'estranged siblings':'');
+  const request=rows[1].content.split('AU REQUEST\n')[1];
+  assert(request.includes(o.facet.phrases[mode==='none'?'relationOff':mode==='original'?'originalOn':'originalOff']));assert.equal(request.includes('estranged siblings'),mode==='custom');
   assert.equal(C.recordSettings(o).facet.relation,mode);
  }
  assert.equal(F.clean({relationship:true,originalRelationship:false}).relation,'new');
@@ -136,7 +136,7 @@ test('source-focused AU writing adds original sheets without mixing the separate
   assert(result[1].content.includes('FULL_ORIGINAL_CHARACTER_SHEET'));
   assert(result[1].content.includes('FULL_ORIGINAL_PERSONA_SHEET'));
   assert(result[0].content.includes('RELATIONSHIP FIREWALL'));
-  assert(result[1].content.includes('"relationshipMode":"'+relation+'"'));
+  assert(result[1].content.includes(preserving.facet.phrases[relation==='none'?'relationOff':relation==='original'?'originalOn':'originalOff']));
   const remaking=options(relation);remaking.facet.degree='rebuild';
   const other=F.writeMessages(remaking,identity(),'로판 AU',null,'new',cards);
   assert(!JSON.stringify(other).includes('FULL_ORIGINAL_CHARACTER_SHEET'));
