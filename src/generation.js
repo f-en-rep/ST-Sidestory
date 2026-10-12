@@ -178,7 +178,7 @@ async function generate(action='new'){
     plan=SideFacet.parsePlan(JSON.stringify(previousPlan),facet.target);
    }else{
     busyTask='facet-plan';if(alive)render();say('1/2 · 원본에서 인물 정보만 추출하고 있어요.');
-    const review=action==='facet-replan'?{previousPlan,feedback:String(previous?.facetReviewDraft||'').trim().slice(0,2000)}:undefined;
+    const review=action==='facet-replan'?{previousPlan,feedback:String(previous?.facetReviewDraft||'').trim()}:undefined;
     const planRows=SideFacet.planMessages(options,bundle.ctx,task,review);
     const planFit=await fitTokenBudget(planRows,options.inputMaxTokens,bundle.counter);
     if(planFit.tokens>options.inputMaxTokens)throw new Error('인물 추출 참고 자료가 입력 한도를 넘어요. 참고 범위나 고정 자료를 줄여 주세요.');
