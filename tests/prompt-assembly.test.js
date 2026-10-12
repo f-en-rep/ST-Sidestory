@@ -4,12 +4,33 @@ import fs from 'node:fs';
 const read=name=>fs.readFileSync(new URL('../src/'+name,import.meta.url),'utf8');
 const {C,F}=new Function(read('replacement.js')+read('facet.js')+read('core.js')+';return {C:SideCore,F:SideFacet};')();
 
+test('four length choices survive settings and assemble distinct instructions in every regular mode',()=>{
+ for(const mode of ['analysis','story','visual','speak','write'])for(const level of ['short','middle','long','flexible']){
+  const s=C.settings({mode,lengthPreset:level}),key=['speak','write'].includes(mode)?'inner'+level[0].toUpperCase()+level.slice(1):level;
+  assert.equal(s.lengthPreset,level);assert.equal(C.settings(s).lengthPreset,level);
+  for(const text of [C.messages(s,{text:'{}'},'ASK')[1].content,C.contextualPrompt(s,'ASK')]){
+   assert(text.includes(C.SIDE_LENGTH[key]));
+   if(level==='flexible')assert(!/Target ~[\d,]+ tokens/.test(text));
+  }
+ }
+ for(const [old,value] of Object.entries({brief:'short',normal:'middle',detailed:'long'})){
+  const s=C.settings({lengthPreset:old,facet:{detail:'detailed'}});
+  assert.equal(s.lengthPreset,value);assert.equal(s.facet.detail,'detailed');
+ }
+ assert.equal(C.settings({}).lengthPreset,'middle');
+ for(const detail of ['brief','normal','detailed']){
+  const texts=['short','middle','long','flexible'].map(lengthPreset=>F.input(C.settings({mode:'facet',lengthPreset,facet:{detail,au:'AU'}}).facet));
+  assert(texts.every(text=>text===texts[0]&&text.includes(F.DETAIL_HINTS[detail])));
+  assert(!/Target ~[\d,]+ tokens/.test(texts[0]));
+ }
+});
+
 test('all regular modes assemble inputs once and keep free text out of system instructions',()=>{
  for(const mode of ['analysis','story','visual','speak','write']){
   const s=C.settings({mode,tone:'로코 분위기로 {{sidelength}} $&',notes:'NOTE {{sidetone}}',pcControl:false,showInnerThoughts:true});
   const rows=C.messages(s,{text:'{"summary":"REFERENCE"}'},'REQUEST {{sidenotes}}');
   assert.deepEqual(rows.map(r=>r.role),['system','user']);
-  for(const text of ['REQUEST {{sidenotes}}',s.tone,s.notes,C.SIDE_LENGTH.normal,'Write in 한국어.','Do not invent PC']){
+  for(const text of ['REQUEST {{sidenotes}}',s.tone,s.notes,C.SIDE_LENGTH[['speak','write'].includes(mode)?'innerMiddle':'middle'],'Write in 한국어.','Do not invent PC']){
    assert(rows[1].content.includes(text));assert(!rows[0].content.includes(text));
   }
   assert.equal(rows[1].content.split(s.tone).length-1,1);
@@ -22,7 +43,7 @@ test('blank optional inputs disappear in raw and current-ST-preset requests',()=
  const s=C.settings({mode:'story',tone:' \n ',notes:'',manualSummary:'MANUAL',lengthPreset:'brief'});
  for(const text of [C.messages(s,{text:'{}'},'ASK')[1].content,C.contextualPrompt(s,'ASK')]){
   assert(!text.includes('Maintain this tone'));assert(!text.includes('Follow these additional requirements'));
-  assert(text.includes(C.SIDE_LENGTH.brief));assert(text.includes('ASK'));
+  assert(text.includes(C.SIDE_LENGTH.short));assert(text.includes('ASK'));
  }
  assert(C.contextualPrompt(s,'ASK').includes('MANUAL'));
 });

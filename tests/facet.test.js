@@ -61,12 +61,12 @@ test('legacy relationship fields and custom prompt remain valid',()=>{
  assert.equal(F.clean({relationship:true,originalRelationship:false}).relation,'new');
  assert.equal(F.clean({relationship:false}).relation,'none');
  assert.equal(F.clean({...F.defaults,target:'user',relation:'original',prompt:'custom {{AU대상}}'}).prompt,'custom');
- assert.equal(C.settings({lengthPreset:'short'}).lengthPreset,'brief');
- assert.equal(C.settings({lengthPreset:'middle'}).lengthPreset,'normal');
- assert.equal(C.settings({lengthPreset:'long'}).lengthPreset,'detailed');
- assert.equal(C.settings({lengthPreset:'flexible'}).lengthPreset,'normal');
+ assert.equal(C.settings({lengthPreset:'short'}).lengthPreset,'short');
+ assert.equal(C.settings({lengthPreset:'middle'}).lengthPreset,'middle');
+ assert.equal(C.settings({lengthPreset:'long'}).lengthPreset,'long');
+ assert.equal(C.settings({lengthPreset:'flexible'}).lengthPreset,'flexible');
  const prompt=C.contextualPrompt(C.settings({mode:'story',lengthPreset:'detailed'}),'scene');
- assert(prompt.includes(C.SIDE_LENGTH.detailed));
+ assert(prompt.includes(C.SIDE_LENGTH.long));
  assert(!prompt.includes('Aim for roughly 10,000'));
 });
 test('dual-target output can save each complete source sheet independently',()=>{
