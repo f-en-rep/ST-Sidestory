@@ -396,3 +396,30 @@
 .facet-source-meta .facet-source-rename,.facet-source-version .facet-source-rename{margin:0;width:27px;height:27px;min-height:27px;flex:0 0 27px;padding:5px;border:1px solid var(--line);border-radius:6px;display:inline-flex;align-items:center;justify-content:center;background:var(--paper);color:var(--ink);cursor:pointer}
 .facet-source-rename svg{width:14px;height:14px}
 @media(max-width:600px){.facet-source-meta time{font-size:9px}.facet-source-name strong{font-size:11px}.facet-source-active-title,.facet-source-version-head{gap:5px}}
+
+/* One header row; mobile actions use labelled icons to leave room for tabs. */
+.window .topbar{flex-wrap:nowrap;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.window .topbar::-webkit-scrollbar{display:none}
+.window .topbar .work-folder-tabs,.window .topbar .top-actions{flex-wrap:nowrap;flex-shrink:0;white-space:nowrap}
+.window .topbar .top-actions button{display:inline-flex;align-items:center;justify-content:center;gap:4px;flex-shrink:0}
+.window .topbar .task-indicator{flex-shrink:0}
+@media(max-width:850px){
+ .window .topbar{gap:4px;padding:4px 6px 0}
+ .window .topbar .work-folder-tab{min-width:0;min-height:34px;padding:6px 8px;font-size:13px;white-space:nowrap}
+ .window .topbar .work-folder-tab[aria-pressed=true]{min-height:37px}
+ .window .topbar .top-actions{gap:0;margin-bottom:3px}
+ .window .topbar .top-actions button{width:28px;min-width:28px;height:30px;min-height:30px;padding:0}
+ .window .topbar .top-action-label{display:none}
+ .window .topbar .task-indicator{padding:0;margin-bottom:3px;gap:0;border:0;background:transparent}
+ .window .topbar .task-indicator span{display:none}
+ .window .topbar .task-indicator button{min-width:28px;padding:2px;font-size:10px}
+}
+/* The collapsed series control must not consume the reading pane. */
+.window .reader>.series-navigation{flex:0 0 auto;align-self:flex-start;width:100%;min-width:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.window .reader>.series-navigation>summary{display:flex;align-items:center;justify-content:flex-start;gap:6px;width:max-content;max-width:100%;min-height:28px;padding:3px 8px;font-size:11px;line-height:20px;white-space:nowrap;list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+.window .reader>.series-navigation>summary::-webkit-details-marker{display:none}
+.window .reader>.series-navigation>summary::before,.window .reader>.series-navigation>summary::after{content:none}
+.window .reader>.series-navigation>summary small{float:none;font-size:10px;color:var(--muted)}
+.window .reader>.series-navigation>summary svg{width:12px;height:12px;flex:none}
+.window .reader>.series-navigation[open]>summary svg{transform:rotate(90deg)}
+.window .reader>.series-navigation>.series-list{max-height: min(180px,25dvh);margin-top:4px;overflow:auto}
