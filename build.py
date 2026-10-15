@@ -2,7 +2,7 @@ from pathlib import Path
 import json
 root=Path(__file__).parent
 src=root/'src'
-files=['replacement.js','reading-surface.js','token-budget.js','extras.js','transport.js','facet.js','core.js','renderer.js','extras-ui.js','enhancements.js','design.js','compact.js','series.js','composer.js','reading-ui.js','excerpt.js','generation.js','extension.js']
+files=['replacement.js','reading-surface.js','token-budget.js','extras.js','transport.js','facet.js','core.js','renderer.js','extras-ui.js','enhancements.js','design.js','compact.js','series.js','composer.js','reading-ui.js','excerpt.js','shell.js','generation.js','extension.js']
 code='const SIDE_STYLE='+json.dumps((src/'style.css').read_text(),ensure_ascii=False)+';\n'
 code+='\n'.join((src/f).read_text() for f in files)
 wrapper='''import { createSTHost } from './src/st-host.js';

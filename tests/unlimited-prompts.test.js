@@ -28,7 +28,7 @@ test('long regular, translation and AU instructions survive settings, snapshots 
 });
 
 test('instruction editors no longer impose maxlength and preset save handlers retain full text',async()=>{
- for(const [file,selector] of [['extras-ui.js','id="translation-prompt-editor"'],['design.js','data-prompt='],['facet.js','data-facet="prompt"'],['facet.js','data-facet="extractionPrompt"'],['facet.js','data-facet-phrase=']]){
+ for(const [file,selector] of [['extras-ui.js','id="translation-prompt-editor"'],['shell.js','data-prompt='],['facet.js','data-facet="prompt"'],['facet.js','data-facet="extractionPrompt"'],['facet.js','data-facet-phrase=']]){
   const tag=read(file).match(new RegExp('<textarea[^>]*'+selector+'[^>]*>'))?.[0];
   assert(tag,selector);assert(!tag.includes('maxlength'),selector);
  }

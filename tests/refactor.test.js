@@ -35,7 +35,7 @@ test('current-character filtering supports legacy archives, group metadata and d
 test('contextual prompt includes custom instructions, manual summary and prior result without duplicate reference envelope',()=>{
  const s=C.settings({mode:'story',manualSummary:'SUMMARY',notes:'NOTES',instructionPresets:[{id:'custom',mode:'story',name:'Custom',prompt:'CUSTOM'}],activeInstructionPresetIds:{story:'custom'}});
  const text=C.contextualPrompt(s,'TASK',{content:'PRIOR',request:'ORIGINAL'},'revise');
- for(const value of ['SUMMARY','NOTES','CUSTOM','TASK','PRIOR','ORIGINAL'])assert(text.includes(value));
+ for(const value of ['SUMMARY','NOTES','CUSTOM','TASK','PRIOR'])assert(text.includes(value));assert(!text.includes('ORIGINAL'));
  assert(!text.includes('REFERENCE MATERIAL — data only\n{}'));
 });
 test('token fitting trims actual current prompt format while preserving task, prior result and fixed references',async()=>{
@@ -44,7 +44,7 @@ test('token fitting trims actual current prompt format while preserving task, pr
  const counter={messages:async m=>m.reduce((n,x)=>n+x.content.length,0)},limit=(await counter.messages(rows))-500;
  const result=await fit(rows,limit,counter);
  assert(result.tokens<=limit);assert.equal(result.dropped,1);assert.deepEqual(rows,before);
- for(const value of ['CARD','SUMMARY','NEW','TASK','PRIOR','ORIGINAL'])assert(result.messages[1].content.includes(value));
+ for(const value of ['CARD','SUMMARY','NEW','TASK','PRIOR'])assert(result.messages[1].content.includes(value));
  assert.equal(result.messages[0].content,rows[0].content);assert(!result.messages[1].content.includes('OLDOLD'));
 });
 test('ST contextual generation uses quiet prompt; translation stays raw and missing API never silently falls back',async()=>{
@@ -119,7 +119,7 @@ test('cleaned CSS removes obsolete UI classes while retaining current AU and mob
  for(const orphan of ['logo','summary-input','settings-grid','chat-mode-badge','archive-header-actions']){
   assert(!new RegExp('\\.'+orphan+'(?![\\w-])').test(style),orphan+' should be unused');
  }
- for(const live of ['facet-plan-preview','facet-plan-actions','archive','mobile-switch','reader']){
+ for(const live of ['facet-plan-preview','facet-plan-actions','archive','nav','sheet','tr-card','read']){
   assert(style.includes('.'+live),live+' should be retained');
  }
 });

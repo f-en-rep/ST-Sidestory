@@ -35,7 +35,7 @@ test('all regular modes assemble inputs once and keep free text out of system in
   }
   assert.equal(rows[1].content.split(s.tone).length-1,1);
   if(mode==='speak')assert(rows[1].content.includes('add an <inner>'));
-  assert(!Object.values(C.PROMPTS).some(p=>/\{\{side[a-z]+}}/.test(p)));
+  assert(!Object.values(C.PROMPTS).some(p=>/\{\{side(?!asker)[a-z]+}}/.test(p)));
  }
 });
 
@@ -63,4 +63,32 @@ test('AU reference path places the previous artifact before one complete revisio
  assert.deepEqual(rows.map(r=>r.role),['system','assistant','user']);
  assert.equal(rows[1].content,'PRIOR');assert(rows[2].content.includes('Revision request:\nCHANGE'));
  assert(rows[2].content.includes(F.DETAIL_HINTS.detailed));assert(rows[0].content.includes('SIDESTORY_CHARACTER_PROFILE'));
+});
+
+test('speak: the asker line fills {{sideasker}} once, follows the setting, and is appended when a custom guide lacks the macro',()=>{
+ const plan=C.planFrom('ASK',[],'new');
+ for(const [asker,needle] of [['user','The questions come from {{user}}.'],['outsider','someone in your world who is not {{user}}'],['author','the author who writes your story']]){
+  const s=C.settings({mode:'speak',speakAsker:asker}),text=C.sideStory(s,plan,{native:true});
+  assert(text.includes(needle),asker);assert(!text.includes('{{sideasker}}'));
+  assert.equal(text.split('The questions come from').length-1,1,asker+' appears once');
+ }
+ const custom=C.settings({mode:'speak',speakAsker:'author',prompts:{speak:'Custom speak guide.'}});
+ assert(C.sideStory(custom,plan,{native:true}).includes('the author who writes your story'));
+ assert(!C.sideStory(C.settings({mode:'story',speakAsker:'author'}),plan,{native:true}).includes('The questions come from'));
+ assert.equal(C.settings({speakAsker:'nobody'}).speakAsker,'user');
+});
+
+test('lore keyword activation: constant always, keywords with secondary logic, regex keys, no-key entries kept',()=>{
+ const text='세레나가 항구 도시에 도착했다. The Tower loomed.';
+ assert(C.loreActive({constant:true,key:['없음']},text));
+ assert(C.loreActive({key:['항구']},text));
+ assert(!C.loreActive({key:['사막']},text));
+ assert(C.loreActive({key:['tower']},text));
+ assert(!C.loreActive({key:['tower'],caseSensitive:true},text));
+ assert(C.loreActive({key:['/Tow(er|n)/']},text));
+ assert(C.loreActive({key:['항구'],selective:true,keysecondary:['세레나'],selectiveLogic:0},text));
+ assert(!C.loreActive({key:['항구'],selective:true,keysecondary:['세레나'],selectiveLogic:2},text));
+ assert(C.loreActive({key:[]},text));
+ const s=C.settings({});assert.equal(s.loreKeywordScan,true);assert.equal(s.loreScanDepth,3);
+ assert.equal(C.settings({loreScanDepth:0}).loreScanDepth,0);
 });

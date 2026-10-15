@@ -13,7 +13,7 @@ test('mixed-mode siblings stay in one series; missing parents and cyclic imports
  assert.equal(series.ordered([{id:'a',parentId:'b'},{id:'b',parentId:'a'}]).length,2);
  assert.equal(series.groups([{id:'a'},{id:'b',parentId:'a'}]).length,2);
  const backup=C.backup({kind:'st-sidestory-backup',version:2,records:[{...rows[2],seriesTitle:'제목',action:'continue',title:'C',content:'text',mode:'story'}]});assert.equal(backup[0].seriesId,'s');assert.equal(backup[0].parentId,'b');assert.equal(backup[0].action,'continue');
- const prompt=C.contextualPrompt(C.settings({mode:'visual'}),'다음 장면',{content:'PRIOR',request:'ORIGINAL'},'continue');assert(prompt.includes('PRIOR'));assert(prompt.includes('ORIGINAL'));assert(prompt.includes('requested target mode'));assert(!prompt.includes('in the same mode'));
+ const prompt=C.contextualPrompt(C.settings({mode:'visual'}),'다음 장면',{content:'PRIOR',request:'ORIGINAL'},'continue');assert(prompt.includes('PRIOR'));assert(!prompt.includes('ORIGINAL'),'earlier requests stay out');assert(prompt.includes('<resume_point>\nPRIOR'));assert(prompt.includes('Create the next page'));assert(prompt.trim().endsWith('</SIDESTORY>'));assert(prompt.indexOf('<user_request>')>prompt.indexOf('<previous_part'));
 });
 test('new chat writes original as sole character message, opens correct avatar, never replaces old messages',async()=>{
  let payload,opened;const old=[{mes:'original chat'}];
