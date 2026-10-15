@@ -16,8 +16,10 @@ const HostCore=(()=>{
     let eligible=messages.filter(m=>!truth(parseObject(m.extra).hiddenFromAI)&&!truth(parseObject(m.extra).hiddenFromUser)&&m.role!=='system');
     let boundary=-1; eligible.forEach((m,i)=>{if(truth(parseObject(m.extra).isConversationStart))boundary=i;});
     if(boundary>=0) eligible=eligible.slice(boundary);
-    const total=eligible.length;if(s.referenceMode==='summary')eligible=[];
-    if(s.scope!=='all')eligible=eligible.slice(-Math.max(1,Number(s.scope)||60));
+    // Series parts stay on the canon point their series started from.
+    if(Number.isInteger(s.historyCutoff)&&s.historyCutoff>=0)eligible=eligible.filter(m=>!/^\d+$/.test(String(m.id))||Number(m.id)<=s.historyCutoff);
+    const total=eligible.length;if(s.referenceMode==='summary'||s.historyExclude)eligible=[];
+    if(s.scope!=='all'){const n=Math.max(0,Number(s.scope)||0);eligible=n?eligible.slice(-n):[];}
     const names=Object.fromEntries(cards.map(c=>[c.id,character(c).name]));
     const base={characters:cards.map(character),players:personas.map(character),summary:s.includeSummary?(meta.summary||''):'',providedSummary:s.manualSummary||'',world:lore,notes:s.notes||''};
     const baseText=JSON.stringify(base),baseTokens=await counter.text(baseText);

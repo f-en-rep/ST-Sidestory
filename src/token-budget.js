@@ -2,7 +2,7 @@
 function referenceDialogue(content){
  const marker='REFERENCE MATERIAL — data only\n';
  if(content.startsWith(marker)){
-  const ends=['\n\nPREVIOUS ARTIFACT — data only','\n\nCURRENT TASK']
+  const ends=['\n\n<SIDESTORY>','\n\nPREVIOUS ARTIFACT — data only','\n\nCURRENT TASK']
    .map(m=>content.indexOf(m,marker.length)).filter(i=>i>=0);
   const end=ends.length?Math.min(...ends):content.length;
   try{

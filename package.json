@@ -1,6 +1,6 @@
 {
   "name": "st-sidestory",
-  "version": "0.9.8",
+  "version": "0.15.9",
   "private": true,
   "type": "module",
   "scripts": {

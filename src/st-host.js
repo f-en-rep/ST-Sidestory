@@ -48,8 +48,133 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
         return {id:currentChatId(),name:String(c.getCurrentChatId?.()??c.chatId??'현재 채팅'),mode:'roleplay',connectionId:'st-current',characterIds:linked(),personaId:currentPersona(),metadata:{summary,activeLorebookIds:lore}};
     }
     function messages() {
-        return (get().chat||[]).filter(m=>!m.is_system).map((m,i)=>({id:String(i),role:m.is_user?'user':m.name||'assistant',content:String(m.mes||''),characterId:m.original_avatar||'',extra:{hiddenFromAI:!!m.extra?.hiddenFromAI,hiddenFromUser:!!m.extra?.hiddenFromUser}}));
+        // ids are indexes in the full ST chat so series anchors can address them.
+        return (get().chat||[]).map((m,i)=>[m,i]).filter(([m])=>!m.is_system).map(([m,i])=>({id:String(i),role:m.is_user?'user':m.name||'assistant',content:String(m.mes||''),characterId:m.original_avatar||'',extra:{hiddenFromAI:!!m.extra?.hiddenFromAI,hiddenFromUser:!!m.extra?.hiddenFromUser}}));
     }
+    /** The latest message visible to the model: the canon point a new side story starts from. */
+    function currentAnchor() {
+        const chat=get().chat||[];
+        for(let i=chat.length-1;i>=0;i--)if(!chat[i]?.is_system)return {index:i,sendDate:String(chat[i].send_date??''),name:String(chat[i].name??'')};
+        return null;
+    }
+    /** Finds an anchor again after edits/deletions shifted indexes. -1 when it no longer exists. */
+    function resolveAnchor(anchor) {
+        if(!anchor||!Number.isInteger(anchor.index))return -1;
+        const chat=get().chat||[],same=m=>m&&String(m.send_date??'')===anchor.sendDate&&String(m.name??'')===anchor.name;
+        if(same(chat[anchor.index]))return anchor.index;
+        if(anchor.sendDate)for(let i=chat.length-1;i>=0;i--)if(same(chat[i]))return i;
+        return -1;
+    }
+    // ---- RP preset for Side Story generations (current API's preset manager) ----
+    function presetManager() { try { return get().getPresetManager?.() || null; } catch { return null; } }
+    function presetNames() { const pm = presetManager(); try { return pm ? [...new Set(pm.getAllPresets().filter(Boolean))] : []; } catch { return []; } }
+    function currentPresetName() { try { return presetManager()?.getSelectedPresetName() || ''; } catch { return ''; } }
+    /**
+     * Runs fn with the named preset active, then restores the previous one even on failure or abort.
+     * Main-chat sending is disabled meanwhile so an RP turn never goes out with the Side Story preset.
+     */
+    async function withPreset(name, fn) {
+        if (!name) return fn();
+        const pm = presetManager(), c = get();
+        if (!pm) throw new Error('실리태번 프리셋 관리자를 찾지 못했어요. "현재 프리셋 따르기"로 바꿔 주세요.');
+        if (pm.getSelectedPresetName() === name) return fn();
+        const value = pm.findPreset(name);
+        if (value === undefined || value === null) throw new Error(`프리셋 "${name}"을 찾지 못했어요. 이름이 바뀌었거나 다른 API의 프리셋일 수 있어요.`);
+        const previous = pm.getSelectedPreset();
+        c.deactivateSendButtons?.();
+        try {
+            await pm.selectPreset(value);
+            return await fn();
+        } finally {
+            try { await pm.selectPreset(previous); } catch (e) { console.warn('[Side Story] could not restore preset', e); }
+            c.activateSendButtons?.();
+        }
+    }
+    // ---- Side Story turn shaping inside ST's own prompt assembly ----
+    let pending=null;
+    const INTERCEPTOR='sideStoryGenerateInterceptor';
+    /**
+     * generate_interceptor: trims ST's chat copy before the preset assembles history.
+     * plan = {limit:number|null, anchor:{index,sendDate,name}|null, exclude:boolean, append:[{role,content}]}
+     * append: earlier Side Story parts, added after the (trimmed) RP history as real chat messages.
+     */
+    function interceptHistory(chat,type) {
+        const plan=pending?.history;
+        if(!plan||type!=='quiet'||!Array.isArray(chat))return;
+        const report={before:chat.length,anchor:null};
+        let keep=chat.map((_,k)=>k);
+        if(plan.exclude)keep=[];
+        else {
+            if(plan.anchor){
+                const all=get().chat||[],visible=[];
+                all.forEach((m,i)=>{if(!m?.is_system||Array.isArray(m?.extra?.tool_invocations))visible.push(i);});
+                const cut=resolveAnchor(plan.anchor);
+                report.anchor=cut>=0&&visible.length===chat.length?'applied':'missing';
+                if(report.anchor==='applied')keep=keep.filter(k=>visible[k]<=cut);
+            }
+            if(Number.isInteger(plan.limit)&&plan.limit>=0)keep=keep.slice(Math.max(0,keep.length-plan.limit));
+        }
+        const set=new Set(keep);
+        for(let k=chat.length-1;k>=0;k--)if(!set.has(k))chat.splice(k,1);
+        report.after=chat.length;
+        if(Array.isArray(plan.append)&&plan.append.length){
+            const c=get(),date=new Date().toISOString();
+            for(const m of plan.append){
+                const user=m.role==='user';
+                chat.push({name:user?String(c.name1||'User'):String(m.name||c.name2||'Assistant'),is_user:user,is_system:false,send_date:date,mes:String(m.content??''),extra:{sideStory:true}});
+            }
+            report.appended=plan.append.length;
+        }
+        pending.historyReport=report;
+        // Kept so the history can be put back if another prompt rewriter drops it (see shapePrompt).
+        const names=new Set(chat.map(m=>m?.name).filter(Boolean)),prefix=names.size>2;
+        pending.historyTurns=chat.map(m=>({role:m?.is_user?'user':'assistant',content:(prefix&&m?.name?m.name+': ':'')+String(m?.mes??'')})).filter(m=>m.content.trim());
+    }
+    const textOf=m=>typeof m?.content==='string'?m.content:Array.isArray(m?.content)?m.content.map(p=>p?.text||'').join(''):'';
+    /**
+     * CHAT_COMPLETION_PROMPT_READY: the quiet prompt arrives as a system message (possibly squashed into the
+     * preset's post-history text). Split it out and make it the final user turn, as if the user sent it.
+     */
+    /** Lines of plain dialogue from the last turns, used to tell whether the history reached the prompt at all. */
+    function historyProbes(turns){
+        const out=[];
+        for(const m of turns.slice(-3)){
+            const lines=String(m.content).split('\n').map(x=>x.trim()).filter(x=>x.length>=12&&!/[<>\[\]{}|]/.test(x)).sort((a,b)=>b.length-a.length);
+            if(lines[0])out.push(lines[0].slice(0,40));
+        }
+        return out;
+    }
+    function restoreHistory(chat){
+        const turns=pending?.historyTurns;
+        if(!Array.isArray(turns)||!turns.length)return;
+        const probes=historyProbes(turns);
+        if(!probes.length||chat.some(m=>probes.some(p=>textOf(m).includes(p))))return;
+        let at=chat.length;for(let i=chat.length-1;i>=0;i--)if(textOf(chat[i]).includes(pending.marker)){at=i;break;}
+        chat.splice(at,0,...turns.map(m=>({role:m.role,content:m.content})));
+        pending.meta={...pending.meta,historyRestored:turns.length};
+    }
+    function shapePrompt(data) {
+        if(!pending||data?.dryRun||!Array.isArray(data?.chat))return;
+        try{shapeTurn(data);}finally{if(Array.isArray(data.chat)){restoreHistory(data.chat);pending.finalPrompt=structuredClone(data.chat);}}
+    }
+    function shapeTurn(data) {
+        const chat=data.chat,marker=pending.marker;
+        let index=-1;for(let i=chat.length-1;i>=0;i--)if(textOf(chat[i]).includes(marker)){index=i;break;}
+        // Another PROMPT_READY listener may rebuild the prompt and drop the quiet prompt; put the request back as the last user turn.
+        if(index<0){if(pending.turn){chat.push({role:'user',content:pending.turn});pending.meta={...pending.meta,reinserted:true};}pending.finalPrompt=structuredClone(chat);return;}
+        const message=chat[index];
+        if(typeof message.content==='string'){
+            const at=message.content.indexOf(marker),before=message.content.slice(0,at).trim(),turn=message.content.slice(at);
+            chat.splice(index,1);
+            if(before)chat.splice(index,0,{...message,content:before});
+            chat.push({role:'user',content:turn});
+        } else {
+            chat.splice(index,1);chat.push({...message,role:'user'});
+        }
+        pending.finalPrompt=structuredClone(chat);
+    }
+    globalThis[INTERCEPTOR]=async(chat,contextSize,abort,type)=>{try{interceptHistory(chat,type);}catch(e){console.warn('[Side Story] history interceptor failed',e);}};
+    cleanups.push(()=>{if(globalThis[INTERCEPTOR])delete globalThis[INTERCEPTOR];});
     async function entries(name, signal) {
         check(signal);
         let data;
@@ -192,13 +317,40 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
                 if(typeof c.generateQuietPrompt!=='function')throw new Error('현재 실리태번 프롬프트를 사용하려면 generateQuietPrompt를 지원하는 실리태번 버전이 필요해요.');
                 const quietPrompt=String(payload.quietPrompt||payload.messages?.map(m=>m.content).filter(Boolean).join('\n\n')||'');
                 send=async()=>{
+                    const readyEvent=c.eventTypes?.CHAT_COMPLETION_PROMPT_READY,events=c.eventSource;
+                    const ready=data=>{try{shapePrompt(data);}catch(e){console.warn('[Side Story] prompt shaping failed',e);}};
+                    const shaping=payload.asUserTurn!==false&&readyEvent&&typeof events?.on==='function';
+                    const cc=c.chatCompletionSettings||{};
+                    // Connection facts only (no prompt text): used by the content-free structure report.
+                    const meta={api:String(c.mainApi||''),source:String(cc.chat_completion_source||''),model:String(c.getChatCompletionModel?.()||''),squash:cc.squash_system_messages===true,postProcessing:String(cc.custom_prompt_post_processing||''),prefillChars:String(cc.assistant_prefill||'').length,presetMaxTokens:Number(cc.openai_max_tokens)||null,requestedMaxTokens:payload.parameters?.maxTokens??null,promptReadyEvent:!!readyEvent};
+                    const marker=payload.marker||'<SIDESTORY>',at=quietPrompt.indexOf(marker);
+                    pending={marker,turn:at>=0?quietPrompt.slice(at):'',history:payload.history||null,meta};
+                    // Run after other extensions' PROMPT_READY handlers so the request stays the final user turn.
+                    if(shaping){if(typeof events.makeLast==='function')events.makeLast(readyEvent,ready);else events.on(readyEvent,ready);}
+                    try{return await withPreset(payload.presetName||'',quietRun);}
+                    finally{
+                        if(shaping)events.removeListener?.(readyEvent,ready);
+                        payload.onPromptReady?.({messages:pending.finalPrompt||null,history:pending.historyReport||null,meta:pending.meta});
+                        pending=null;
+                    }
+                };
+                const quietRun=async()=>{
                     // Only the local scan arrays are changed; stored books and entry objects stay untouched.
                     const event=c.eventTypes?.WORLDINFO_ENTRIES_LOADED,events=c.eventSource;
                     const filter=rows=>{for(const key of ['globalLore','characterLore','chatLore','personaLore'])if(Array.isArray(rows[key]))rows[key].splice(0);};
                     if(payload.selectedLoreOnly&&(!event||typeof events?.on!=='function'||typeof events?.removeListener!=='function'))throw new Error('엔트리 직접 선택은 WORLDINFO_ENTRIES_LOADED를 지원하는 ST 버전이 필요해요. ST를 업데이트하거나 ST 설정 따르기를 선택해 주세요.');
                     if(payload.selectedLoreOnly)events.on(event,filter);
-                    try{return await c.generateQuietPrompt({quietPrompt,quietToLoud:false,responseLength:payload.parameters?.maxTokens,removeReasoning:true});}
-                    finally{if(payload.selectedLoreOnly)events.removeListener(event,filter);}
+                    // Text-completion instruct templates label the quiet turn with quietName: present it as the user.
+                    const quietName=payload.asUserTurn!==false?(c.name1||undefined):undefined;
+                    // ST reserves the response length out of the context size. A Side Story asks for a longer reply than the
+                    // RP preset, so without this the preset's own prompts would eat the budget and ST would silently drop
+                    // the persona, the chat history and the request. Widen the context by exactly the extra reply length.
+                    const live=get().chatCompletionSettings,requested=Number(payload.parameters?.maxTokens)||0;
+                    const ctx=Number(live?.openai_max_context),own=Number(live?.openai_max_tokens)||0,extra=String(get().mainApi||'')==='openai'&&Number.isFinite(ctx)&&ctx>0?Math.max(0,requested-own):0;
+                    if(pending)pending.meta={...pending.meta,contextSize:Number.isFinite(ctx)?ctx:null,contextWidened:extra};
+                    if(extra)live.openai_max_context=ctx+extra;
+                    try{return await c.generateQuietPrompt({quietPrompt,quietToLoud:false,responseLength:payload.parameters?.maxTokens,removeReasoning:true,...(quietName?{quietName}:{})});}
+                    finally{if(extra&&live.openai_max_context===ctx+extra)live.openai_max_context=ctx;if(payload.selectedLoreOnly)events.removeListener(event,filter);}
                 };
             } else {
                 if(typeof c.generateRaw!=='function')throw new Error('generateRaw를 지원하는 실리태번 버전이 필요해요.');
@@ -216,7 +368,7 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
         } finally {signal?.removeEventListener('abort',handler);}
     }
     return {
-        request,generate,createChatFromRecord,createCharacterFromProfile,createPersonaFromProfile,currentChatId,currentChat,linked,currentPersona,tokenCounter,connections,
+        request,generate,presetNames,currentPresetName,currentAnchor,resolveAnchor,createChatFromRecord,createCharacterFromProfile,createPersonaFromProfile,currentChatId,currentChat,linked,currentPersona,tokenCounter,connections,
         storage:{async get(){return {sideStory:get().extensionSettings?.st_sidestory||{}};},async patch(value){const c=get();if(!c.extensionSettings||typeof c.saveSettingsDebounced!=='function')throw new Error('실리태번 설정 저장 API를 찾지 못했어요.');c.extensionSettings.st_sidestory=structuredClone(value.sideStory);c.saveSettingsDebounced();}},
         setTimeout:globalThis.setTimeout.bind(globalThis),clearTimeout:globalThis.clearTimeout.bind(globalThis),
         onCleanup(fn){cleanups.push(fn);},cleanup(){for(const fn of cleanups.splice(0))fn();}

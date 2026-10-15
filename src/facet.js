@@ -191,7 +191,7 @@ function switchFacetWorkspace(value){
  const remembered=facetWorkCache.get(chatId+':'+next);
  current=records.find(r=>r.id===remembered&&r.chatId===chatId&&facetWorkspaceMatches(r,next))||
   records.filter(r=>r.chatId===chatId&&facetWorkspaceMatches(r,next)).sort((a,b)=>b.createdAt-a.createdAt)[0]||null;
- page='create';viewEpoch++;mobilePane='compose';expanded=false;editing=false;raw=false;translationShown=false;
+ page='create';viewEpoch++;mobilePane='compose';editing=false;raw=false;translationShown=false;
  persist();render();
 }
 async function facetUseSelectedIdentity(){
