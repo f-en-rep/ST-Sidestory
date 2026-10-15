@@ -154,7 +154,7 @@ function facetSourceDetail(record,kind,key){
   return value.trim()?'<div class="facet-source-fact"><dt>'+E(label)+'</dt><dd>'+E(value)+'</dd></div>':'';
  }).filter(Boolean).join('');
  const rel=record.facetPlan?.relationship&&record.facetPlan.subjects?.length===2?'<div class="facet-source-fact"><dt>원본 관계</dt><dd>'+E(record.facetPlan.relationship)+'</dd></div>':'';
- return '<details class="facet-source-details" data-ui-persist-open="'+E(key)+'"><summary>전체 추출 항목 보기</summary><dl>'+rows+rel+'</dl></details>';
+ return '<details class="facet-source-details" data-key="facet-source-'+E(key)+'"><summary>전체 추출 항목 보기</summary><dl>'+rows+rel+'</dl></details>';
 }
 function facetSourcesView(){
  const groups=facetSubjectKinds(s.facet.target).map(kind=>{
@@ -169,7 +169,7 @@ function facetSourcesView(){
     '<button type="button" data-facet-source-kind="'+kind+'" data-facet-source="'+E(r.id)+'" aria-pressed="'+isSelected+'"'+(isSelected?' disabled':'')+'>'+(isSelected?'현재 사용 중':'이 추출본 선택')+'</button></article>';
   }).join('');
   return '<section class="facet-source-person"><div class="facet-source-heading"><strong>'+label+' · '+E(person.name||label)+'</strong><span>'+list.length+'개 저장됨</span></div>'+
-   chosen+'<details class="facet-source-picker" data-ui-persist-open="facet-picker-'+kind+'"><summary>다른 추출본 비교 · '+list.length+'개</summary><div class="facet-source-version-list" data-ui-scroll="facet-list-'+kind+'">'+versions+'</div></details></section>';
+   chosen+'<details class="facet-source-picker"><summary>다른 추출본 비교 · '+list.length+'개</summary><div class="facet-source-version-list" data-ui-scroll="facet-list-'+kind+'">'+versions+'</div></details></section>';
  }).join('');
  return '<section class="facet-source-panel"><div class="facet-source-top"><strong>저장된 핵심정보</strong><button type="button" id="facet-go-extract" class="text-action">추출 작업창 →</button></div><p class="facet-source-hint">선택한 정보로 AU를 생성해요. 연필 아이콘으로 이름을 붙이고 다른 추출본을 비교할 수 있어요.</p>'+groups+'</section>';
 }
@@ -422,7 +422,7 @@ async function handleFacetIdentity(id){
  if(id==='facet-identity-export')download(name+'.md',text,'text/plain;charset=utf-8');
  if(id==='facet-identity-json')download(name+'.json',JSON.stringify(plan,null,2),'application/json');
  if(id==='facet-identity-png'){
-  const holder=document.createElement('div');holder.style.cssText='position:fixed;left:-10000px;top:0;';
+  const holder=document.createElement('div');holder.dataset.keep='';holder.style.cssText='position:fixed;left:-10000px;top:0;';
   const node=document.createElement('div');node.className='facet-plan-preview identity-capture';node.style.cssText='width:680px;height:auto;overflow:visible;background:#fff;color:#222;padding:22px;font:14px/1.6 sans-serif;';
   node.innerHTML='<h2>가져갈 인물 정보</h2>'+facetIdentityBody(plan)+(plan.relationship?'<section class="facet-plan-subject"><h3>유지할 원본 관계</h3><p>'+E(plan.relationship)+'</p></section>':'');
   holder.append(node);ui.append(holder);const button=$('facet-identity-png');if(button)button.disabled=true;

@@ -1,4 +1,4 @@
-:host{all:initial;position:fixed!important;margin:0;padding:0;border:0;background:transparent;overflow:visible;z-index:2147482000}
+:host{all:initial;position:fixed!important;inset:0 auto auto 0;margin:0;padding:0;border:0;background:transparent;overflow:visible;z-index:2147482000}
 :host([hidden]){display:none!important}
 .app{--paper:var(--surface);--soft:var(--accent-soft);--tint:var(--accent-soft);--bg:var(--ground);--shadow:#16171a24;--radius:14px;-webkit-text-size-adjust:100%;color-scheme:light;height:100%}
 .app[data-theme=dark]{--danger:#f2788e;--shadow:#0009;color-scheme:dark}
