@@ -19,7 +19,6 @@ function showCompletedResult(record,translation,target,signal){
  s.requestDrafts[s.mode]=s.request;s.mode=record.mode;s.request=s.requestDrafts[s.mode]||'';
  current=record;if(record.mode==='facet')s.facetWorkspace=record.facetPhase==='plan'?'identity':'au';continuationMode=null;page='create';mobilePane='result';viewEpoch++;
  translationShown=translation;translationDraft=null;raw=false;editing=false;
- expanded=record.mode==='visual';
  return true;
 }
 async function collect(options,target,signal,{inspect=false,approvedFacetPlan=false}={}){
