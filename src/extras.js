@@ -16,7 +16,19 @@ const SideExtras=(()=>{
   add(end,source.length);return segments;
  }
  function applyHTML(source,segments,translations){let result=source;for(const seg of [...segments].reverse()){const text=translations.get(seg.id);if(typeof text!=='string')throw new Error('번역 결과에 빠진 항목이 있어요. 원문은 유지했어요.');result=result.slice(0,seg.start)+text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+result.slice(seg.end);}return result;}
- function parseTranslation(raw,items){let data;try{data=JSON.parse(raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}catch(cause){throw new Error('번역 응답 JSON 형식 오류 · '+cause.message+' · 받은 응답은 번역 복구에서 확인해 주세요.');}if(!Array.isArray(data?.items)||data.items.length!==items.length)throw new Error('번역 항목 수가 맞지 않아요. 원문은 유지했어요.');const itemsById=new Map(items.map(x=>[x.id,x])),out=new Map();for(const x of data.items){const original=itemsById.get(x.id);if(!original||out.has(x.id)||typeof x.text!=='string'||(!x.text.trim()&&original.text.trim()))throw new Error('번역 항목이 누락되거나 중복됐어요.');out.set(x.id,x.text);}return out;}
+ const TRANSLATE_LINES=`REQUIRED OUTPUT: The source arrives as segments, each opened by a marker line such as ⟦12⟧. Return every segment in the same order: the same marker alone on its line, then only that segment's translation on the following line(s). Copy each marker exactly, including IDs like ⟦12:0⟧. Write nothing before the first marker and nothing after the last translation: no commentary, code fences, JSON, or markup that is not already in the segment.`;
+function markedSource(items){return items.map(x=>`⟦${x.id}⟧\n${x.text}`).join('\n\n');}
+/** Reads a ⟦id⟧-marked reply (or the older JSON reply). Later copies of an id win, so re-requested segments replace cut-off ones. */
+function readTranslation(raw,items){
+  const text=String(raw??'').replace(/^﻿/,'').replace(/^\s*```[A-Za-z]*[ \t]*\n/,'').replace(/\n```\s*$/,'');
+  if(/^\s*\{/.test(text))return {map:parseTranslation(text,items),missing:[],last:null};
+  const byId=new Map(items.map(x=>[String(x.id),x])),out=new Map(),marks=[...text.matchAll(/(^|\n)[ \t]*⟦([^⟧\n]+)⟧[ \t]*/g)];let last=null;
+  const edge=(src,body)=>{const lead=src.match(/^\s*/)[0],trail=src.match(/\s*$/)[0];return lead+body+trail;};
+  marks.forEach((m,k)=>{const item=byId.get(m[2].trim());if(!item)return;const start=m.index+m[0].length,end=k+1<marks.length?marks[k+1].index:text.length,body=text.slice(start,end).replace(/^\r?\n/,'').trim();last=item.id;if(!body&&item.text.trim())return;out.set(item.id,item.text.trim()?edge(item.text,body):item.text);});
+  if(!marks.length&&items.length===1&&text.trim())out.set(items[0].id,edge(items[0].text,text.trim()));
+  return {map:out,missing:items.filter(x=>!out.has(x.id)).map(x=>x.id),last};
+}
+function parseTranslation(raw,items){let data;try{data=JSON.parse(raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}catch(cause){throw new Error('번역 응답 JSON 형식 오류 · '+cause.message+' · 받은 응답은 번역 복구에서 확인해 주세요.');}if(!Array.isArray(data?.items)||data.items.length!==items.length)throw new Error('번역 항목 수가 맞지 않아요. 원문은 유지했어요.');const itemsById=new Map(items.map(x=>[x.id,x])),out=new Map();for(const x of data.items){const original=itemsById.get(x.id);if(!original||out.has(x.id)||typeof x.text!=='string'||(!x.text.trim()&&original.text.trim()))throw new Error('번역 항목이 누락되거나 중복됐어요.');out.set(x.id,x.text);}return out;}
  function translationPlan(content,mode){
   if(mode==='speak'&&/<sideb-response>/i.test(content)){const items=extractHTML(content);return {items,finish:map=>{let result=content;for(const seg of [...items].reverse()){const text=map.get(seg.id);if(typeof text!=='string')throw new Error('번역 결과에 빠진 항목이 있어요. 원문은 유지했어요.');result=result.slice(0,seg.start)+text+result.slice(seg.end);}return result;}};}
   if(mode!=='visual'&&/<\/?[A-Za-z][^>]*>/.test(content)){const items=extractHTML(content);if(items.length)return {items,finish:map=>applyHTML(content,items,map)};}
@@ -35,7 +47,7 @@ const SideExtras=(()=>{
   const n=v=>Number(v||0).toLocaleString();
   const out=['[Side Story 구조 보고 · 본문 없음]'];
   out.push(`연결: api=${m.api||'?'} · source=${m.source||'?'} · model=${m.model||'?'} · squash=${m.squash?'켜짐':'꺼짐'} · post-processing=${m.postProcessing||'없음'} · 프리필 ${n(m.prefillChars)}자 · 프리셋 최대 응답 ${m.presetMaxTokens??'?'} · 요청 최대 출력 ${m.requestedMaxTokens??'?'} · PROMPT_READY ${m.promptReadyEvent?'있음':'없음'}${m.contextSize?` · 컨텍스트 ${n(m.contextSize)}${m.contextWidened?` (+${n(m.contextWidened)} 이번만)`:''}`:''}`);
-  if(h)out.push(`본편 대화: ${h.before}개 → ${h.after}개${h.anchor?' · 기준점 '+h.anchor:''}${h.appended?' · 이전 편 메시지 '+h.appended+'개 추가':''}`);
+  if(h)out.push(`본편 대화: ${h.before}개 → ${h.after}개${h.anchor?' · 기준점 '+h.anchor:''}${h.appended?' · 이전 아티클 메시지 '+h.appended+'개 추가':''}`);
   out.push(`메시지 ${rows.length}개`);
   let sideAt=-1;
   rows.forEach((row,i)=>{const body=text(row),has=body.includes('<SIDESTORY>');if(has)sideAt=i;const tags=structureTags(body).filter(x=>x!=='sidestory');out.push(`#${i+1} ${row?.role||'?'} · ${n(body.length)}자${has?' · ★SIDESTORY':''}${tags.length?' · 태그: '+tags.slice(0,15).join(', '):''}`);});
@@ -46,7 +58,7 @@ const SideExtras=(()=>{
   if(shape)out.push(`응답: ${n(shape.chars)}자 · 시작 태그 ${shape.startsWithTag||'없음'} · recap ${shape.recap?'있음':'없음'}${shape.tags?.length?' · 태그: '+shape.tags.slice(0,15).join(', '):''}`);
   return out.join('\n');
  }
- return {structureTags,structureReport,tokens,TRANSLATE,TRANSLATE_CONTRACT,FONTS,PRETENDARD,extractHTML,applyHTML,parseTranslation,translationPlan,batches};
+ return {structureTags,structureReport,tokens,TRANSLATE,TRANSLATE_CONTRACT,TRANSLATE_LINES,markedSource,readTranslation,FONTS,PRETENDARD,extractHTML,applyHTML,parseTranslation,translationPlan,batches};
 })();
 if(typeof module!=='undefined')module.exports=SideExtras;
 

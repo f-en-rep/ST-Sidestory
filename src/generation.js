@@ -151,7 +151,7 @@ async function generate(action='new'){
  const task=extract?'원본 핵심정보 추출':action==='new'?(options.mode==='facet'?options.facet.au.trim():s.request.trim()):regular&&action==='regenerate'?legacyInstruction(source)+(rewriteNote.trim()?'\n\n추가로 반영할 점: '+rewriteNote.trim():''):['regenerate','facet-replan','facet-approve'].includes(action)?previous.request:
   followupText(action)||(action==='continue'?'앞의 결과를 바탕으로 다음 내용을 이어서 작성해줘.':'요청한 내용을 유지하면서 완전한 결과로 다시 만들어줘.');
  if(!task){say('보고 싶은 내용을 한 줄 적어 주세요.');$('request')?.focus();return;}
- if(previous&&previous.chatId!==target){say('다른 채팅에서 만든 결과는 이 채팅에서 이어 쓸 수 없어요.',true);return;}
+ if(previous&&previous.chatId!==target){say('다른 채팅에서 만든 아티클은 이 채팅에서 이어 쓸 수 없어요.',true);return;}
  if(options.mode==='think'){say('이전 생각하기 기록은 읽기와 저장만 지원해요.');return;}
  if(action==='new'&&options.mode!=='facet'){C.rememberInput(s,task,{chatId:target,characterIds:s.characterIds});persist();}
  let selectedIdentity=null;
@@ -266,7 +266,7 @@ async function generate(action='new'){
   if(record.mode==='visual'){const v=C.visual(record.content);record.title=v.title||record.title;partialVisual=v.partial;}
   record.status=partialVisual?'partial':'complete';await saveGenerated(record,previous);
   const anchorLost=action!=='new'&&anchor&&(useSTContext?historyReport?.anchor==='missing':options.historyCutoff===undefined)&&canon!=='exclude';
-  if(showCompletedResult(record,false,target,signal))say(anchorLost?'완성했어요. 다만 시리즈 기준 메시지를 본편에서 찾지 못해(삭제·수정) 현재 본편 전체를 참고했어요.':partialVisual?'HTML이 출력 중간에서 끝났어요. 받은 범위까지 자동 복구해 표시하고 저장했어요.':'완성했어요. 결과 화면으로 이동했어요.');
+  if(showCompletedResult(record,false,target,signal))say(anchorLost?'완성했어요. 다만 시리즈 기준 메시지를 본편에서 찾지 못해(삭제·수정) 현재 본편 전체를 참고했어요.':partialVisual?'HTML이 출력 중간에서 끝났어요. 받은 범위까지 자동 복구해 표시하고 저장했어요.':'완성했어요. 아티클 화면으로 이동했어요.');
  }catch(e){
   record.content=record.content||partial;
   if(record.content)record.content=C.stripReasoning(record.content,options.reasoningBlocks);

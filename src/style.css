@@ -894,3 +894,8 @@ select{height:36px}
 .series-row .card-icons{flex:none;padding:0}
 .series-row .card-icons button{width:34px;height:34px}
 .series-row .card-icons .side-icon{width:15px;height:15px}
+.archive-selection{flex-wrap:wrap;row-gap:8px}
+.archive-selection>.grow{white-space:nowrap}
+.archive-actions{flex:1 1 100%;display:flex;gap:6px}
+.archive-actions .btn{flex:1;min-width:0;white-space:nowrap;gap:4px}
+.archive-actions .btn .side-icon{width:14px;height:14px}
