@@ -17,7 +17,7 @@ function showCompletedResult(record,translation,target,signal){
  if(!alive||signal?.aborted||target!==activeChat())return false;
  closeFeature();
  s.requestDrafts[s.mode]=s.request;s.mode=record.mode;s.request=s.requestDrafts[s.mode]||'';
- current=record;if(record.mode==='facet')s.facetWorkspace=record.facetPhase==='plan'?'identity':'au';continuationMode=null;page='create';mobilePane='result';viewEpoch++;
+ current=record;if(record.mode==='facet')s.facetWorkspace=record.facetPhase==='plan'?'identity':'au';continuationMode=null;continuationKnobs=null;page='create';mobilePane='result';viewEpoch++;
  translationShown=translation;translationDraft=null;raw=false;editing=false;
  return true;
 }
@@ -130,6 +130,7 @@ async function generate(action='new'){
  const viewIdAtStart=current?.id||null,viewEpochAtStart=viewEpoch,before=current;
  const options=referenceOptions();if(extract){options.mode='facet';options.facet.target=s.facetIdentityTarget;options.facet.relation=s.facetIdentityRelation;}
  if(previous)options.mode=action==='continue'&&(continuationMode in C.MODES)?continuationMode:previous.mode;
+ if(action==='continue'){const knobs=continueKnobValues(options.mode);if(knobs)for(const k of CONTINUE_KNOBS[options.mode==='think'?'speak':options.mode])options[k]=knobs[k];}
  if(action==='continue'&&(previous?.mode==='facet'||options.mode==='facet')){say('다면은 이어쓰기를 지원하지 않아요. 수정 요청을 사용해 주세요.');return;}
  if(previous?.mode==='facet')options.facet=SideFacet.clean(previous.settings?.facet);
  if(options.mode==='facet'&&!extract&&!options.facet.prompt.trim()){say('다면 프롬프트를 먼저 작성해 주세요.');return;}
@@ -241,6 +242,7 @@ async function generate(action='new'){
   }else{
    const extra={lore:useSTContext?bundle.lore:null,regen:action==='regenerate'};
    const taskMessages=useSTContext?[{role:'user',content:C.contextualPrompt(options,task,prior,baseAction,extra)}]:C.messages(options,bundle.ctx,task,prior,baseAction,extra);
+   taskMessages.push(...C.auxiliaryTurns(options,options.mode));
    fitted=await fitTokenBudget(taskMessages,options.inputMaxTokens,bundle.counter);
    if(fitted.dropped)bundle.ctx.warnings.push('전체 입력 한도에 맞춰 오래된 참고 대화 '+fitted.dropped.toLocaleString()+'개를 추가로 제외했어요.');
    if(fitted.tokens>options.inputMaxTokens)throw new Error('과거 대화를 제외해도 전체 입력이 한도를 넘어요. 입력 한도를 높이거나 고정 자료를 줄여 주세요.');
@@ -254,7 +256,7 @@ async function generate(action='new'){
   const nativeConversation=useSTContext?C.nativeTurns(options,task,prior,baseAction,{lore:bundle.lore,regen:action==='regenerate'}):null;
   const history=useSTContext?{limit:options.scope==='all'?null:Number(options.scope),anchor:action!=='new'?anchor:null,exclude:options.historyExclude===true,append:nativeConversation?.turns||null}:undefined;
   let historyReport=null;
-  record.content=await sendGeneration({connectionId:bundle.cid,messages,parameters:{maxTokens:options.maxTokens},streaming:false,runId,useSillyTavernContext:useSTContext,selectedLoreOnly:useSTContext&&options.loreMode==='selected',quietPrompt:useSTContext?(nativeConversation?nativeConversation.final:messages[0]?.content):undefined,marker:C.MARKER,history,presetName:useSTContext?options.stPreset||'':undefined,onHistory:r=>historyReport=r},options,options.mode==='facet'?'다면 · AU 프로필 작성':action,t=>partial=t,bundle.counter);
+  record.content=await sendGeneration({connectionId:bundle.cid,messages,parameters:{maxTokens:options.maxTokens},streaming:false,runId,useSillyTavernContext:useSTContext,selectedLoreOnly:useSTContext&&options.loreMode==='selected',quietPrompt:useSTContext?(nativeConversation?nativeConversation.final:messages[0]?.content):undefined,auxiliaryTurns:options.mode!=='facet'?C.auxiliaryTurns(options,options.mode):[],marker:C.MARKER,history,presetName:useSTContext?options.stPreset||'':undefined,onHistory:r=>historyReport=r},options,options.mode==='facet'?'다면 · AU 프로필 작성':action,t=>partial=t,bundle.counter);
   record.content=C.stripReasoning(record.content,options.reasoningBlocks);
   if(C.RECAP_MODES.has(record.mode)){const split=C.splitRecap(record.content);record.content=split.content;if(split.recap)record.recap=split.recap;}
   record.outputTokens=await bundle.counter.text(record.content);checkTask(target,signal);

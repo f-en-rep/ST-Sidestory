@@ -155,7 +155,8 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
     }
     function shapePrompt(data) {
         if(!pending||data?.dryRun||!Array.isArray(data?.chat))return;
-        try{shapeTurn(data);}finally{if(Array.isArray(data.chat)){restoreHistory(data.chat);pending.finalPrompt=structuredClone(data.chat);}}
+        for(let i=data.chat.length-1;i>=0;i--)if(pending.auxInserted?.has(data.chat[i]))data.chat.splice(i,1);
+        try{shapeTurn(data);for(const row of pending.auxiliaryTurns||[]){const copy={...row};data.chat.push(copy);pending.auxInserted.add(copy);}}finally{if(Array.isArray(data.chat)){restoreHistory(data.chat);pending.finalPrompt=structuredClone(data.chat);}}
     }
     function shapeTurn(data) {
         const chat=data.chat,marker=pending.marker;
@@ -278,19 +279,20 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
         try{await personasApi.getUserAvatars?.(true,avatarId);}catch(e){console.warn('[Side Story] 페르소나 목록 새로고침 실패:',e);}
         return avatarId;
     }
-    async function createChatFromRecord(record) {
+    async function createChatFromRecord(record, parts) {
+        const list=(Array.isArray(parts)&&parts.length?parts:[record]).filter(Boolean);
         const c=get(),origin=currentChatId();
         if(running||(typeof state.isGenerating==='function'&&state.isGenerating())||c.isSendPress||(typeof c.isGenerating==='function'?c.isGenerating():c.isGenerating))throw new Error('생성이 끝난 뒤 새 채팅을 만들어 주세요.');
-        if(!record?.content?.trim())throw new Error('새 채팅에 넣을 원문이 없어요.');
+        if(!record||list.some(r=>!r?.content?.trim()))throw new Error('새 채팅에 넣을 원문이 없어요.');
         let owner='';try{const parsed=JSON.parse(record.chatId);if(typeof parsed?.[0]==='string')owner=parsed[0];}catch{}
         const avatar=owner.startsWith('character:')?owner.slice(10):record.characterIds?.length===1?record.characterIds[0]:'';
         const index=(c.characters||[]).findIndex(row=>row.avatar===avatar),character=c.characters?.[index];
         if(!character)throw new Error('원본 캐릭터를 찾지 못했어요. 새 채팅은 캐릭터가 하나인 결과에서 지원해요.');
         if(typeof c.openCharacterChat!=='function'||typeof c.selectCharacterById!=='function'||typeof c.getRequestHeaders!=='function')throw new Error('새 채팅 API를 지원하는 ST 버전이 필요해요.');
         const uuid=()=>c.uuidv4?.()||globalThis.crypto.randomUUID?.()||Array.from(globalThis.crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16).padStart(8,'0')).join('');
-        const name='Side Story - '+String(record.title||'새 이야기').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,60)+' - '+uuid();
-        const message={name:character.name,is_user:false,is_system:false,send_date:new Date().toISOString(),mes:record.content,extra:{sideStoryRecordId:record.id}};
-        const response=await fetcher('/api/chats/save',{method:'POST',headers:c.getRequestHeaders(),body:JSON.stringify({ch_name:character.name,avatar_url:character.avatar,file_name:name,force:false,chat:[{user_name:'unused',character_name:'unused',chat_metadata:{integrity:uuid()}},message]})});
+        const name='Side Story - '+String((list.length>1&&record.seriesTitle)||record.title||'새 이야기').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,60)+' - '+uuid();
+        const messages=list.map(r=>({name:character.name,is_user:false,is_system:false,send_date:new Date().toISOString(),mes:r.content,extra:{sideStoryRecordId:r.id}}));
+        const response=await fetcher('/api/chats/save',{method:'POST',headers:c.getRequestHeaders(),body:JSON.stringify({ch_name:character.name,avatar_url:character.avatar,file_name:name,force:false,chat:[{user_name:'unused',character_name:'unused',chat_metadata:{integrity:uuid()}},...messages]})});
         if(!response.ok)throw new Error('새 채팅 저장 실패: '+response.status);
         const saved=await response.json();if(saved?.ok!==true)throw new Error('새 채팅 저장을 확인하지 못했어요.');
         if(origin!==currentChatId())throw new Error('새 채팅은 저장했지만 현재 채팅이 바뀌어 열지 않았어요. '+character.name+'의 채팅 목록에서 '+name+'을 열어 주세요.');
@@ -324,7 +326,8 @@ export function createSTHost({context = () => globalThis.SillyTavern.getContext(
                     // Connection facts only (no prompt text): used by the content-free structure report.
                     const meta={api:String(c.mainApi||''),source:String(cc.chat_completion_source||''),model:String(c.getChatCompletionModel?.()||''),squash:cc.squash_system_messages===true,postProcessing:String(cc.custom_prompt_post_processing||''),prefillChars:String(cc.assistant_prefill||'').length,presetMaxTokens:Number(cc.openai_max_tokens)||null,requestedMaxTokens:payload.parameters?.maxTokens??null,promptReadyEvent:!!readyEvent};
                     const marker=payload.marker||'<SIDESTORY>',at=quietPrompt.indexOf(marker);
-                    pending={marker,turn:at>=0?quietPrompt.slice(at):'',history:payload.history||null,meta};
+                    if(payload.auxiliaryTurns?.length&&(!shaping||(c.mainApi&&c.mainApi!=='openai')))throw Error('보조 대화는 프롬프트 편집 이벤트를 지원하는 채팅 완성 API에서 사용할 수 있어요.');
+                    pending={auxiliaryTurns:payload.auxiliaryTurns||[],auxInserted:new WeakSet(),marker,turn:at>=0?quietPrompt.slice(at):'',history:payload.history||null,meta};
                     // Run after other extensions' PROMPT_READY handlers so the request stays the final user turn.
                     if(shaping){if(typeof events.makeLast==='function')events.makeLast(readyEvent,ready);else events.on(readyEvent,ready);}
                     try{return await withPreset(payload.presetName||'',quietRun);}
